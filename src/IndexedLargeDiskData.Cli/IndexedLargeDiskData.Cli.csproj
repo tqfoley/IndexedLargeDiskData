@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>IndexedLargeDiskData.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\IndexedLargeDiskData\IndexedLargeDiskData.csproj" />
+  </ItemGroup>
+
+</Project>

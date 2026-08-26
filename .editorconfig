@@ -1,0 +1,7 @@
+root = true
+
+[*.cs]
+# This codebase spells conditionals out as if/else blocks rather than the ?: operator.
+# Without these the IDE proposes converting them straight back.
+dotnet_style_prefer_conditional_expression_over_assignment = false
+dotnet_style_prefer_conditional_expression_over_return = false

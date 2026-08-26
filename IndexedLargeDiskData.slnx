@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/IndexedLargeDiskData.Cli/IndexedLargeDiskData.Cli.csproj" />
+    <Project Path="src/IndexedLargeDiskData/IndexedLargeDiskData.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/IndexedLargeDiskData.Tests/IndexedLargeDiskData.Tests.csproj" />
+  </Folder>
+</Solution>
