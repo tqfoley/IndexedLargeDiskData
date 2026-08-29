@@ -29,9 +29,32 @@ public sealed class DataRoot : IDisposable
     private bool _disposed;
 
 
-    public void AddSingleTransaction(long v0, long v1, long block, long amount )
+    public void AddSingleTransaction(long fromShort, string from, long toShort, string to, long amount, int block)
     {
-        if(block > 1024*1024)
+        List<long> a = GetAddressFromString(from.PadRight(75, 'F'));
+        if (a.Count == 0)
+        {
+            AddSingleAddress(fromShort, from.PadRight(75, 'F'));
+        }
+        List<long> b = GetAddressFromString(to.PadRight(75, 'F'));
+        if (b.Count == 0)
+        {
+            AddSingleAddress(toShort, to.PadRight(75, 'F'));
+        }
+        var a1 = GetAddressFromString(from.PadRight(75, 'F')).First(); // some addersses get two short addresses
+        var b1 = GetAddressFromString(from.PadRight(75, 'F')).First(); // some addersses get two short addresses
+
+        //if (r2.Count == 1)
+        //{
+        AddSingleTransaction(a1, b1, block, amount);
+        //}
+        //throw new Exception("bad");
+        return;
+    }
+
+    public void AddSingleTransaction(long v0, long v1, long block, long amount)
+    {
+        if (block > 1024 * 1024)
         {
             throw new ArgumentOutOfRangeException("block index too large");
         }
@@ -56,8 +79,9 @@ public sealed class DataRoot : IDisposable
         return;
     }
 
-    public void AddSingleTransaction(long v0, long v1, long v2)
+    /*public void AddSingleTransaction(long v0, long v1, long v2)
     {
+
         TripleRecord[] batch = new TripleRecord[1];
         batch[0] = new TripleRecord(v0, v1, v2);
 
@@ -67,13 +91,13 @@ public sealed class DataRoot : IDisposable
         _blockLog.Log(v2 >>> BlockShift);
 
         return;
-    }
+    }*/
 
     public void AddSingleAddress(long v0, string address) 
     { 
         if(address.Length < 75)
         {
-            address.PadRight(75, '0');
+            address.PadRight(75, 'F');
         }
 
         AddressRecord[] batch3 = new AddressRecord[1];
@@ -107,6 +131,12 @@ public sealed class DataRoot : IDisposable
 
     public List<long> GetAddressFromString(string address)
     {
+
+        if (address.Length < 75)
+        {
+            address.PadRight(75, 'F');
+        }
+
         var ret = Addresses.FindByAddress(address).Select(x => x.Id).ToList();
         return ret;
     }
