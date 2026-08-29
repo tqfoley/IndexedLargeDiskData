@@ -42,7 +42,7 @@ public sealed class DataRoot : IDisposable
             AddSingleAddress(toShort, to.PadRight(75, 'F'));
         }
         var a1 = GetAddressFromString(from.PadRight(75, 'F')).First(); // some addersses get two short addresses
-        var b1 = GetAddressFromString(from.PadRight(75, 'F')).First(); // some addersses get two short addresses
+        var b1 = GetAddressFromString(to.PadRight(75, 'F')).First(); // some addersses get two short addresses
 
         //if (r2.Count == 1)
         //{
