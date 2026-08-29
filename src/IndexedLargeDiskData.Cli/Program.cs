@@ -3,6 +3,7 @@ using IndexedLargeDiskData.Records;
 using IndexedLargeDiskData.Stores;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using System.Transactions;
 
 namespace IndexedLargeDiskData.Cli;
 
@@ -37,9 +38,10 @@ internal static class Program
     /// </remarks>
     private static int Roundtrip()
     {
-        long perSession =  1_000;
-        long addressesPerSession =  50_000;
+        long perSession = 2_123_000;
+        long addressesPerSession =  150_000;
         long distinctKeys =  2_000;
+        long blockNumberCurrent = 0;
 
         // A fresh directory per run: the record counts below are exact, and reopening a directory
         // that already holds data would append to it and fail every one of them.
@@ -49,8 +51,8 @@ internal static class Program
         StoreOptions options = new StoreOptions()
         {
             BlockSize = 4096,
-            CacheBudgetBytes = 64L * 1024 * 1024,
-            SegmentSize = 50L * 1024 * 1024,  
+            CacheBudgetBytes = 1600L * 1024 * 1024, // 1.6 gigs
+            SegmentSize = 500L * 1024 * 1024, // 500 megs
             MemTableEntries = 1 << 16,
             MaxSegmentEntries = 1 << 20,
             MergeFanout = 4,
@@ -78,7 +80,7 @@ internal static class Program
 
             long v0 = 1111111111111;
             long v3 = 3333333333333;
-            for (long h = 0; h < 2_000L; h++)
+            for (long h = 0; h < perSession * 3L; h++)
             {
                 TripleRecord[] batch = new TripleRecord[1];
                 batch[0] = new TripleRecord(v0++, v0++, v3);
@@ -86,9 +88,6 @@ internal static class Program
                 db.Transactions.AppendRange(batch.AsSpan(0, 1));
             }
 
-            AddressRecord[] batch2 = new AddressRecord[1];
-            batch2[0] = new AddressRecord(v0, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
-            db.Addresses.AppendRange(batch2.AsSpan(0, 1));
 
 
             db.Flush();
@@ -123,7 +122,17 @@ internal static class Program
 
             db.Transactions.AppendRange(batch.AsSpan(0, 1));
 
+            for (int i = 0; i < 5555; i++)
+            {
+                long v20 = 1411111111111;
+                long v21 = 2422222222222;
+                blockNumberCurrent++;
+                db.AddSingleTransaction(v20, v21, blockNumberCurrent / 64, 1 << 42);
+            }
 
+            AddressRecord[] batch3 = new AddressRecord[1];
+            batch3[0] = new AddressRecord(v0, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
+            db.Addresses.AppendRange(batch3.AsSpan(0, 1));
 
             AddressRecord[] batch2 = new AddressRecord[1];
             batch2[0] = new AddressRecord(v3, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
@@ -142,14 +151,25 @@ internal static class Program
         Console.WriteLine($"session 2  wrote {perSession:N0} transactions, {addressesPerSession:N0} addresses" +
                           $"  [{clock.Elapsed.TotalSeconds:F2}s]");
 
+        /*public void AddSingleAddress(long v0, string address)
+TripleRecord> GetTransactionFromV0(long v0)
+t<string> GetAddressFromLong(long v0)
+GetAddressString(string address)
+        */
+
         // Session three: reopen once more and query only.
         clock.Restart();
         using (DataRoot db = new(dataPath, options))
         {
-
             long v0 = 1111111111111;
             long v1 = 2222222222222;
             long v3 = 3333333333333;
+
+            long v20 = 1411111111111;
+            long v21 = 2422222222222;
+
+            var t2 = db.GetTransactionFromV0(v20);
+            var t3 = db.GetTransactionFromV1(v21);
 
             long byFirst = db.Transactions.CountByV0(v0);
             long bySecond = db.Transactions.CountByV1(v1);
@@ -167,7 +187,26 @@ internal static class Program
 
             Console.WriteLine(resultAddress1.Count);
 
-            Console.WriteLine(resultAddress1.Count);
+
+            var r1 = db.GetAddressFromLong(v0);
+            var r2 = db.GetAddressFromString("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
+            Console.WriteLine("r1");
+            foreach(var r in r1)
+            {
+                Console.WriteLine(r.ToString());
+            }
+            Console.WriteLine("r2");
+            foreach (var r in r2)
+            {
+                Console.WriteLine(r.ToString());
+            }
+
+            Console.WriteLine($"total transactions {db.Transactions.Count:N0}");
+            Console.WriteLine($"total addresses    {db.Addresses.Count:N0}");
+
+            Console.WriteLine($"total transactions {db.Transactions.Count:N0}");
+            Console.WriteLine($"total addresses    {db.Addresses.Count:N0}");
+
 
             //ReportTransactionCounts(db, [1111111111111, 2222222222222, 9999999999999]);
 

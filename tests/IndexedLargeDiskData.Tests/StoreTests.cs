@@ -1,3 +1,4 @@
+using System.Text.Json;
 using IndexedLargeDiskData.Records;
 
 namespace IndexedLargeDiskData.Tests;
@@ -287,5 +288,73 @@ public class DataRootTests
     {
         using TempDirectory dir = new();
         Assert.Throws<ArgumentException>(() => new DataRoot(dir.Path, new StoreOptions { BlockSize = blockSize }));
+    }
+
+    [Fact]
+    public void RecordsItsOptionsBesideTheStores()
+    {
+        using TempDirectory dir = new();
+        StoreOptions options = TestData.SmallOptions();
+
+        using (DataRoot root = new(dir.Path, options))
+        {
+            Assert.True(File.Exists(Path.Combine(root.Path, "options.json")));
+        }
+
+        string json = File.ReadAllText(Path.Combine(dir.Path, "options.json"));
+        StoreOptions? stored = JsonSerializer.Deserialize<StoreOptions>(json);
+
+        Assert.NotNull(stored);
+        Assert.Equal(options.BlockSize, stored.BlockSize);
+        Assert.Equal(options.SegmentSize, stored.SegmentSize);
+        Assert.Equal(options.MaxSegmentEntries, stored.MaxSegmentEntries);
+    }
+
+    [Fact]
+    public void ReopensWithTheOptionsItWasWrittenWith()
+    {
+        using TempDirectory dir = new();
+
+        using (DataRoot root = new(dir.Path, TestData.SmallOptions()))
+        {
+            root.Transactions.Append(1, 2, 3);
+        }
+
+        // A separate instance of the same values, so the check compares contents rather than identity.
+        using DataRoot reopened = new(dir.Path, TestData.SmallOptions());
+        Assert.Equal(1, reopened.Transactions.Count);
+    }
+
+    [Fact]
+    public void RejectsAReopenWithDifferentOptions()
+    {
+        using TempDirectory dir = new();
+
+        using (DataRoot root = new(dir.Path, TestData.SmallOptions()))
+        {
+            root.Transactions.Append(1, 2, 3);
+        }
+
+        // The failure this prevents: data written under one set of sizes and read back under another
+        // surfaces down in the storage layer as a truncated segment or an index that will not parse,
+        // with nothing in the complaint pointing at the option that actually moved.
+        StoreOptions different = TestData.SmallOptions(maxSegmentEntries: 2048);
+
+        InvalidDataException error = Assert.Throws<InvalidDataException>(() => new DataRoot(dir.Path, different));
+        Assert.Contains(nameof(StoreOptions.MaxSegmentEntries), error.Message);
+    }
+
+    [Fact]
+    public void RejectsAnUnreadableOptionsFile()
+    {
+        using TempDirectory dir = new();
+
+        using (new DataRoot(dir.Path, TestData.SmallOptions()))
+        {
+        }
+
+        File.WriteAllText(Path.Combine(dir.Path, "options.json"), "{ not json");
+
+        Assert.Throws<InvalidDataException>(() => new DataRoot(dir.Path, TestData.SmallOptions()));
     }
 }

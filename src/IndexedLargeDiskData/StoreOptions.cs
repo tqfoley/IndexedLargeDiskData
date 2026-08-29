@@ -63,8 +63,59 @@ public sealed class StoreOptions
     /// </remarks>
     public bool ReportMaintenanceProgress { get; init; } = true;
 
+    public void ensureProductionValues()
+    {
+        StoreOptions options = new StoreOptions()
+        {
+            BlockSize = 4096,
+            CacheBudgetBytes = 6L * 1024 * 1024, 
+            SegmentSize = 5L * 1024 * 1024,
+            MemTableEntries = 1 << 16,
+            MaxSegmentEntries = 1 << 20,
+            MergeFanout = 4,
+            FenceStride = 4096,
+            BloomBitsPerKey = 10,
+            WriteBufferBytes = 1 << 20,
+        };
+
+        if(this.BlockSize != options.BlockSize)
+        {
+            throw new Exception("bad");
+        }
+        if (this.CacheBudgetBytes != options.CacheBudgetBytes)
+        {
+            throw new Exception("bad");
+        }
+        if (this.SegmentSize != options.SegmentSize)
+        {
+            throw new Exception("bad");
+        }
+        if (this.BlockSize != options.BlockSize)
+        {
+            throw new Exception("bad");
+        }
+        if (this.MemTableEntries != options.MemTableEntries)
+        {
+            throw new Exception("bad");
+        }
+        if (this.MaxSegmentEntries != options.MaxSegmentEntries)
+        {
+            throw new Exception("bad");
+        }
+        if (this.FenceStride != options.FenceStride)
+        {
+            throw new Exception("bad");
+        }
+        if (this.WriteBufferBytes != options.WriteBufferBytes)
+        {
+            throw new Exception("bad");
+        }
+    }
+    
     internal void Validate()
     {
+        //ensureProductionValues();
+
         if (BlockSize < 512 || (BlockSize & (BlockSize - 1)) != 0)
             throw new ArgumentException("BlockSize must be a power of two >= 512.", nameof(BlockSize));
         if (CacheBudgetBytes < BlockSize * 16L)

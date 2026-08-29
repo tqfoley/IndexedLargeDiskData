@@ -1,5 +1,7 @@
 using IndexedLargeDiskData.Caching;
+using IndexedLargeDiskData.Records;
 using IndexedLargeDiskData.Stores;
+using System.Net;
 
 namespace IndexedLargeDiskData;
 
@@ -19,12 +21,108 @@ namespace IndexedLargeDiskData;
 /// </remarks>
 public sealed class DataRoot : IDisposable
 {
+    /// <summary>Bits the block number is shifted up by when it is packed with an amount into V2.</summary>
+    private const int BlockShift = 44;
+
     private readonly BlockCache _cache;
+    private readonly BlockLog _blockLog;
     private bool _disposed;
+
+
+    public void AddSingleTransaction(long v0, long v1, long block, long amount )
+    {
+        if(block > 1024*1024)
+        {
+            throw new ArgumentOutOfRangeException("block index too large");
+        }
+
+        if (amount > 1 << 43)
+        {
+            //throw new ArgumentOutOfRangeException("amount too big");
+            amount = 1 << 43;
+        }
+
+        long packedBlock = block << BlockShift;
+        long v2 = packedBlock + amount;
+
+        TripleRecord[] batch = new TripleRecord[1];
+        batch[0] = new TripleRecord(v0, v1, v2);
+
+        Transactions.AppendRange(batch.AsSpan(0, 1));
+
+        // After the append, so the log never names a block whose record did not land.
+        _blockLog.Log(block);
+
+        return;
+    }
+
+    public void AddSingleTransaction(long v0, long v1, long v2)
+    {
+        TripleRecord[] batch = new TripleRecord[1];
+        batch[0] = new TripleRecord(v0, v1, v2);
+
+        Transactions.AppendRange(batch.AsSpan(0, 1));
+
+        // V2 carries the block number in its high bits, packed by the overload above.
+        _blockLog.Log(v2 >>> BlockShift);
+
+        return;
+    }
+
+    public void AddSingleAddress(long v0, string address) 
+    { 
+        if(address.Length < 75)
+        {
+            address.PadRight(75, '0');
+        }
+
+        AddressRecord[] batch3 = new AddressRecord[1];
+        batch3[0] = new AddressRecord(v0, address);
+        
+        Addresses.AppendRange(batch3.AsSpan(0, 1));
+        return;
+    }
+
+    public List<TripleRecord> GetTransactionFromV0(long v0)
+    {
+        return Transactions.FindByV0(v0).ToList();
+    }
+
+    public List<TripleRecord> GetTransactionFromV1(long v1)
+    {
+        return Transactions.FindByV1(v1).ToList();
+    }
+    //public List<TripleRecord> GetTransactionFromV2(long v2)
+    //{
+        //return Transactions.Fin(v2).ToList();
+    //}
+
+
+    public List<string> GetAddressFromLong(long v0)
+    {
+        List<string> ret = Addresses.FindById(v0).Select(x => x.Address).ToList();
+        return ret;
+    }
+
+
+    public List<long> GetAddressFromString(string address)
+    {
+        var ret = Addresses.FindByAddress(address).Select(x => x.Id).ToList();
+        return ret;
+    }
 
     /// <summary>Opens or creates a data root at <paramref name="path"/>.</summary>
     /// <param name="path">Root directory. Created if missing.</param>
     /// <param name="options">Tuning, or null for the defaults.</param>
+    /// <remarks>
+    /// A new root records its options as <c>options.json</c>; an existing one is checked against the
+    /// file it already carries, so a directory can only ever be opened with the options its data was
+    /// written with. The block log, <c>blockslog.txt</c>, is opened alongside it and appended to.
+    /// </remarks>
+    /// <exception cref="InvalidDataException">
+    /// <paramref name="path"/> holds an <c>options.json</c> that does not match
+    /// <paramref name="options"/>.
+    /// </exception>
     public DataRoot(string path, StoreOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -35,6 +133,11 @@ public sealed class DataRoot : IDisposable
         Path = System.IO.Path.GetFullPath(path);
         Directory.CreateDirectory(Path);
 
+        // Before the cache commits its budget, so a directory opened with the wrong options fails
+        // on the mismatch rather than after allocating for it.
+        StoreOptionsFile.WriteOrVerify(Path, Options);
+
+        _blockLog = new BlockLog(Path);
         _cache = new BlockCache(Options);
 
         try
@@ -46,6 +149,7 @@ public sealed class DataRoot : IDisposable
         {
             Transactions?.Dispose();
             _cache.Dispose();
+            _blockLog.Dispose();
             throw;
         }
     }
@@ -65,11 +169,19 @@ public sealed class DataRoot : IDisposable
     /// <summary>Gets the store of identifier and address pairs.</summary>
     public AddressStore Addresses { get; } = null!;
 
+    /// <summary>Gets the last block number written to <c>blockslog.txt</c>, or null if it is empty.</summary>
+    /// <remarks>
+    /// Answered from memory; the log file is only ever read when the root is opened. The time beside
+    /// the number in the file is written for people and is not read back.
+    /// </remarks>
+    public long? LastLoggedBlock => _blockLog.LastBlock;
+
     /// <summary>Commits every store: records to disk, then indexes.</summary>
     public void Flush()
     {
         Transactions.Flush();
         Addresses.Flush();
+        _blockLog.Flush();
     }
 
     /// <summary>Runs index tier merges across every store, reporting progress to the console.</summary>
@@ -140,5 +252,6 @@ public sealed class DataRoot : IDisposable
         Transactions.Dispose();
         Addresses.Dispose();
         _cache.Dispose();
+        _blockLog.Dispose();
     }
 }

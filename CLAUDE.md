@@ -35,6 +35,20 @@ Two append-only datasets, never updated or deleted, sized for terabytes on disk:
   text, held as a `string` and stored as 75 ASCII bytes, so a character count and a byte count are the
   same number. Navigable in both directions: id to address and address to id.
 
+Beside them, `blockslog.txt` records the block numbers passed to `DataRoot.AddSingleTransaction`, one
+line per block — the number, a space, and the UTC time it was first seen:
+
+```
+170001 2026-08-29T16:19:36.671Z
+170002 2026-08-29T16:19:36.866Z
+```
+
+Consecutive repeats are dropped — ingest calls with the same block number once per transaction in it
+— and the check is a comparison against a field, never a read of the file. The clock is only read on
+the branch that writes, so the stamp marks the first transaction in the block rather than some later
+one, and the repeat path stays a comparison. The file is read once, at open, and only its last 128
+bytes, to recover the last number across a restart.
+
 ## Architecture
 
 The layers, bottom up. Each one only knows about the layer below it.
@@ -79,6 +93,14 @@ forces records to disk and writes the manifest *before* any index flushes, and t
 with that committed count. Records found past the committed count on open are discarded rather than
 exposed, because an index could never have referenced them. Breaking this ordering produces dangling
 ordinals that only surface after a crash.
+
+**A directory can only be opened with the options it was written with.** `DataRoot` writes
+`options.json` into the root when it creates one and checks it on every later open, throwing
+`InvalidDataException` naming the fields that moved. `BlockSize`, `SegmentSize` and the index knobs
+decide the shape of what lands on disk, so reopening under different ones does not fail where the
+mistake was made — it fails later as a segment that looks truncated or an index that will not parse.
+The check covers every option, the runtime-only ones included, so changing the cache budget for an
+existing directory means rewriting the file rather than passing a different value.
 
 **Merges are made atomic by `pending.commit`.** A merge writes `.idx.tmp` outputs, writes the pending
 file, renames, deletes inputs, then deletes the pending file. Reopening replays whatever is left. The
