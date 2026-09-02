@@ -2,6 +2,8 @@ using IndexedLargeDiskData;
 using IndexedLargeDiskData.Records;
 using IndexedLargeDiskData.Stores;
 using System.Diagnostics;
+using System.Globalization;
+using System.Numerics;
 using System.Text.RegularExpressions;
 using System.Transactions;
 
@@ -27,7 +29,7 @@ internal static class Program
         Roundtrip();
         return 0;
     }
-
+  
     /// <summary>
     /// Writes, closes, reopens, writes more, commits, closes, then reopens and queries.
     /// </summary>
@@ -131,14 +133,33 @@ internal static class Program
 
                 blockNumberCurrent++;
                 db.AddSingleTransaction(v20, v21, v22, v23, 262144UL + 1_048_576UL, (8_001UL * 100_000_000UL));//
+
+
             }
 
+            //012345678901234567890123456789012345678901234567890123456789       64 chars
+            string hexAddres = "161BqpuSRgdoGqiK78AfUqQi72dZtMyaaE";
+            ulong v203 = DataRoot.FromP2PKHAddressBase58DecodeFast(hexAddres);
+
+            string hexAddres1 = "1LyNyE6BVgwYnDGtFd3DC2W4SVfx2yYvAU";
+            ulong v213 = DataRoot.FromP2PKHAddressBase58DecodeFast(hexAddres1);
+
+                                               //012345678901234501234567890123450123456789012345
+                               //0123456789012345
+            string hexAddres2 = "f3f377cdae127e4719f8bd139684b2d8c993732426ca0343290d839fee69f7ef";
+            ulong v223 = DataRoot.FromHex(hexAddres2.Substring(0, 16));
+
+            string hexAddres3 = "f4f377cdae127e4719f8bd139684b2d8c993732426ca0343290d839fee69f7ef";
+            ulong v233 = DataRoot.FromHex(hexAddres3.Substring(0, 16));
+
+            db.AddSingleTransaction(v203, hexAddres, v213, hexAddres1, v223, hexAddres2, v233, hexAddres3, 8_001UL * 100_000_000UL, 262144UL + 1_048_576UL);
+
             AddressRecord[] batch3 = new AddressRecord[1];
-            batch3[0] = new AddressRecord(v0, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
+            batch3[0] = new AddressRecord(v0, "fff377cdae127e4719f8bd139684b2d8c993732426ca0343290d839fee69f7ef_");
             db.Addresses.AppendRange(batch3.AsSpan(0, 1));
 
             AddressRecord[] batch2 = new AddressRecord[1];
-            batch2[0] = new AddressRecord(v3, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
+            batch2[0] = new AddressRecord(v3, "fff377cdae127e4719f8bd139684b2d8c993732426ca0343290d839fee69f7ef_");
             db.Addresses.AppendRange(batch2.AsSpan(0, 1));
 
 
@@ -175,7 +196,7 @@ GetAddressString(string address)
             ulong v22 = 1511111111111;
             ulong v23 = 2522222222222;
 
-            var t2 = db.GetTransactionFromV0(v20);
+            var t2 = db.GetTransactionV0(v20);
 
             var t22 = t2.Last();
 
@@ -195,11 +216,65 @@ GetAddressString(string address)
             {
 
             }
-            
 
-            var t3 = db.GetTransactionToV1(v21);
-            var t4 = db.GetTransactionFromV0(v22);
-            var t5 = db.GetTransactionToV1(v23);
+
+            string hexAddres24 = "161BqpuSRgdoGqiK78AfUqQi72dZtMyaaE";
+
+            string hexAddres15 = "1LyNyE6BVgwYnDGtFd3DC2W4SVfx2yYvAU";
+
+            var hhhh = DataRoot.FromP2PKHAddressBase58DecodeFast(hexAddres24);
+            var r6 = db.GetAddressFromLong(DataRoot.FromP2PKHAddressBase58DecodeFast(hexAddres24));
+            var r7 = db.GetAddressFromString(hexAddres24.PadRight(65,'A'));
+
+
+            //36e1ade159a92895293b45804642df3e5d027a18
+            //00000000001101101110000110101101111000010101100110101001001010001001010100101001001110110100010110000000010001100100001011011111001111100101110100000010011110100001100010110110001001111010000100001011
+            //00001011101000010010011110110110000110000111101000000010010111010011111011011111010000100100011010000000010001010011101100101001100101010010100010101001010110011110000110101101111000010011011000000000
+            //                    0111101101100001100001111010000000100101110100111110110111110100
+
+
+            var r3 = db.GetAddressFromLong(DataRoot.FromP2PKHAddressBase58DecodeFast(hexAddres15));
+            var r4 = db.GetAddressFromString(hexAddres15.PadRight(65, 'A'));
+
+
+            ulong v203 = DataRoot.FromP2PKHAddressBase58DecodeFast(hexAddres24);
+
+            ulong v213 = DataRoot.FromP2PKHAddressBase58DecodeFast(hexAddres15);
+
+            string hexAddres2 = "f3f377cdae127e4719f8bd139684b2d8c993732426ca0343290d839fee69f7ef";
+            ulong v223 = DataRoot.FromHex(hexAddres2.Substring(0, 16));
+
+            string hexAddres3 = "f4f377cdae127e4719f8bd139684b2d8c993732426ca0343290d839fee69f7ef";
+            ulong v233 = DataRoot.FromHex(hexAddres3.Substring(0, 16));
+
+
+            Console.WriteLine(db.GetTransactionV0(v203).Count());
+            Console.WriteLine(db.GetTransactionV1(v213).Count());
+            Console.WriteLine(db.GetTransactionV2(v223).Count());
+            Console.WriteLine(db.GetTransactionV3(v233).Count());
+
+            var t29 = db.GetTransactionV0(v203).Last();
+            var t39 = db.GetTransactionV1(v213).Last();
+            var t49 = db.GetTransactionV2(v223).Last();
+            var t59 = db.GetTransactionV3(v233).Last();
+
+
+
+            var r34 = db.GetAddressFromString(hexAddres2.PadRight(65, 'T'));
+            var r35 = db.GetAddressFromString(hexAddres3.PadRight(65, 'T'));
+
+
+            ulong block3 = t29.V4 >> DataRoot.BlockShift;
+
+            ulong block4 = t29.V4 / (1UL << DataRoot.BlockShift);
+            ulong amount3 = t29.V4 - (block3 << DataRoot.BlockShift);
+
+
+
+
+            var t3 = db.GetTransactionV1(v21);
+            var t4 = db.GetTransactionV0(v22);
+            var t5 = db.GetTransactionV1(v23);
 
             ulong byFirst = db.Transactions.CountByV0(v0);
             ulong bySecond = db.Transactions.CountByV1(v1);
@@ -219,13 +294,13 @@ GetAddressString(string address)
             var byAmount = db.GetTransactionsByAmount(1UL << 42);
             Console.WriteLine($"           block 1 -> {inBlock.Count:N0}  amount -> {byAmount.Count:N0}");
 
-            var resultAddress1 = db.Addresses.FindByAddress("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
+            var resultAddress1 = db.Addresses.FindByAddress("fff377cdae127e4719f8bd139684b2d8c993732426ca0343290d839fee69f7ef_");
 
             Console.WriteLine(resultAddress1.Count);
 
 
             var r1 = db.GetAddressFromLong(v0);
-            var r2 = db.GetAddressFromString("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
+            var r2 = db.GetAddressFromString("fff377cdae127e4719f8bd139684b2d8c993732426ca0343290d839fee69f7ef_");
             Console.WriteLine("r1");
             foreach(var r in r1)
             {

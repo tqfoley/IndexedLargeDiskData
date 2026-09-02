@@ -53,7 +53,7 @@ public class RecordTests
     [Fact]
     public void AddressRecord_IsEightyThreeBytes()
     {
-        Assert.Equal(8 + 55, AddressRecord.Size);
+        Assert.Equal(8 + 65, AddressRecord.Size);
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class AddressTextTests
     {
         string address = TestData.Address(1);
 
-        Assert.Equal(55, AddressRecord.AddressLength);
+        Assert.Equal(65, AddressRecord.AddressLength);
         Assert.Equal(AddressRecord.AddressLength, address.Length);
         Assert.All(address, c => Assert.True(char.IsAscii(c)));
         Assert.True(AddressRecord.IsValid(address));

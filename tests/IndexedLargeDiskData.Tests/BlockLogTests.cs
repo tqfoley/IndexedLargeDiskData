@@ -84,7 +84,7 @@ public class BlockLogTests
         // V4 is payload and carries the two of them packed together, so neither is a key: they come
         // back by unpacking a record some other lookup returned. Unsigned is what keeps the top of
         // that packed value a data bit rather than a sign bit.
-        QuadrupleRecord found = Assert.Single(root.GetTransactionToV1(2));
+        QuadrupleRecord found = Assert.Single(root.GetTransactionV1(2));
         Assert.Equal(55UL, found.V4 >> BlockShift);
         Assert.Equal(4UL, found.V4 & ((1UL << BlockShift) - 1));
     }

@@ -1,7 +1,11 @@
 using IndexedLargeDiskData.Caching;
 using IndexedLargeDiskData.Records;
 using IndexedLargeDiskData.Stores;
+using System.Buffers.Text;
+using System.Globalization;
 using System.Net;
+using System.Numerics;
+using System.Text;
 
 namespace IndexedLargeDiskData;
 
@@ -28,38 +32,168 @@ public sealed class DataRoot : IDisposable
     private readonly BlockLog _blockLog;
     private bool _disposed;
 
+    public enum ByteOrder { BigEndian, LittleEndian }
+    public static class Base58Binary
+    {
+        /// <summary>Decodes a Base58 string and renders it as a binary digit string.</summary>
+        public static string ToBinary(string base58, ByteOrder order = ByteOrder.BigEndian, bool grouped = false)
+        {
+            byte[] bytes = Decode(base58);        // decoder from earlier
+            if (order == ByteOrder.LittleEndian) Array.Reverse(bytes);
+            return ToBinary(bytes, grouped);
+        }
+
+        /// <summary>Renders bytes as bits, MSB-first within each byte.</summary>
+        public static string ToBinary(ReadOnlySpan<byte> bytes, bool grouped = false)
+        {
+            var sb = new StringBuilder(bytes.Length * (grouped ? 9 : 8));
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                if (grouped && i > 0) sb.Append(' ');
+                for (int bit = 7; bit >= 0; bit--)
+                    sb.Append((char)('0' + ((bytes[i] >> bit) & 1)));
+            }
+            return sb.ToString();
+        }
+    }
+
+    private const string Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    private static readonly int[] Map = BuildMap();
+    public static byte[] Decode(string s)
+    {
+        ArgumentNullException.ThrowIfNull(s);
+
+        BigInteger num = BigInteger.Zero;
+        foreach (char c in s)
+        {
+            int d = c < 128 ? Map[c] : -1;
+            if (d < 0) throw new FormatException($"Invalid Base58 character '{c}'.");
+            num = num * 58 + d;
+        }
+
+        byte[] body = num.IsZero
+            ? Array.Empty<byte>()
+            : num.ToByteArray(isUnsigned: true, isBigEndian: true);
+
+        int zeros = 0;
+        while (zeros < s.Length && s[zeros] == '1') zeros++;
+
+        var result = new byte[zeros + body.Length];
+        body.CopyTo(result, zeros);
+        return result;
+    }
+
+    private static int[] BuildMap()
+    {
+        var map = new int[128];
+        Array.Fill(map, -1);
+        for (int i = 0; i < Alphabet.Length; i++) map[Alphabet[i]] = i;
+        return map;
+    }
+
+    public static ulong FromP2PKHAddressBase58DecodeFast(string s)
+    {
+        int zeros = 0;
+        while (zeros < s.Length && s[zeros] == '1') zeros++;
+
+        int size = (s.Length - zeros) * 733 / 1000 + 1;   // log(58)/log(256) ≈ 0.733
+        Span<byte> buf = size <= 128 ? stackalloc byte[size] : new byte[size];
+        buf.Clear();
+
+        for (int i = zeros; i < s.Length; i++)
+        {
+            int carry = s[i] < 128 ? Map[s[i]] : -1;
+            if (carry < 0) throw new FormatException($"Invalid Base58 character '{s[i]}'.");
+
+            for (int j = size - 1; j >= 0; j--)
+            {
+                carry += 58 * buf[j];
+                buf[j] = (byte)carry;
+                carry >>= 8;
+            }
+        }
+
+        int start = 0;
+        while (start < size && buf[start] == 0) start++;
+
+        var result = new byte[zeros + size - start];
+        buf[start..].CopyTo(result.AsSpan(zeros));
+        return FromHex(GetStringReverseHexBytes(result).Substring(5, 16));
+    }
+
+    public static string ByteArrayToHexString(byte[] bytes)
+    {
+        if (bytes == null || bytes.Length == 0)
+            return string.Empty;
+
+        return BitConverter.ToString(bytes).Replace("-", "");
+    }
+
+    public static string GetStringReverseHexBytes(byte[] hexBytes)
+    {
+        string hex = ByteArrayToHexString(hexBytes);
+        if (string.IsNullOrEmpty(hex) || hex.Length % 2 != 0)
+            throw new ArgumentException("Hex string must have an even number of characters.");
+
+        int byteCount = hex.Length / 2;
+        string[] bytePairs = new string[byteCount];
+
+        // Break into byte-sized chunks
+        for (int i = 0; i < byteCount; i++)
+        {
+            bytePairs[i] = hex.Substring(i * 2, 2);
+        }
+
+        // Reverse the byte order
+        Array.Reverse(bytePairs);
+
+        // Join into final hex string
+        return string.Join("", bytePairs).ToLower();
+    }
+
+    public static ulong FromHex(string hex)
+    {
+        ArgumentNullException.ThrowIfNull(hex);
+        if (hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            hex = hex[2..];
+
+        return ulong.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    }
+
+
+
 
     public void AddSingleTransaction(ulong fromShort, string from, ulong toShort, string to, 
         ulong prevTransactionIdShort, string prevTransactionId, ulong transactionIdShort, string transactionId,
-        ulong amount, int block)
+        ulong amount, ulong block)
     {
-        List<ulong> a = GetAddressFromString(from.PadRight(55, 'A'));
+        List<ulong> a = GetAddressFromString(from.PadRight(AddressRecord.AddressLength, 'A'));
         if (a.Count == 0)
         {
-            AddSingleAddress(fromShort, from.PadRight(55, 'A'));
+            AddSingleAddress(fromShort, from.PadRight(AddressRecord.AddressLength, 'A'));
         }
-        List<ulong> b = GetAddressFromString(to.PadRight(55, 'A'));
+        List<ulong> b = GetAddressFromString(to.PadRight(AddressRecord.AddressLength, 'A'));
         if (b.Count == 0)
         {
-            AddSingleAddress(toShort, to.PadRight(55, 'A'));
+            AddSingleAddress(toShort, to.PadRight(AddressRecord.AddressLength, 'A'));
         }
 
-        List<ulong> c = GetAddressFromString(prevTransactionId.PadRight(55, 'T'));
+        List<ulong> c = GetAddressFromString(prevTransactionId.PadRight(AddressRecord.AddressLength, 'T'));
         if (c.Count == 0)
         {
-            AddSingleAddress(prevTransactionIdShort, prevTransactionId.PadRight(55, 'T'));
+            AddSingleAddress(prevTransactionIdShort, prevTransactionId.PadRight(AddressRecord.AddressLength, 'T'));
         }
-        List<ulong> d = GetAddressFromString(transactionId.PadRight(55, 'T'));
+        List<ulong> d = GetAddressFromString(transactionId.PadRight(AddressRecord.AddressLength, 'T'));
         if (d.Count == 0)
         {
-            AddSingleAddress(transactionIdShort, transactionId.PadRight(55, 'T'));
+            AddSingleAddress(transactionIdShort, transactionId.PadRight(AddressRecord.AddressLength, 'T'));
         }
 
-        var a1 = GetAddressFromString(from.PadRight(55, 'A')).First(); // A for address, Frist because  some addersses get muyltiple short addresses (hash collision)
-        var b1 = GetAddressFromString(to.PadRight(55, 'A')).First(); //A for address, Frist because  some addersses get muyltiple short addresses (hash collision)
+        var a1 = GetAddressFromString(from.PadRight(AddressRecord.AddressLength, 'A')).First(); // A for address, Frist because  some addersses get muyltiple short addresses (hash collision)
+        var b1 = GetAddressFromString(to.PadRight(AddressRecord.AddressLength, 'A')).First(); //A for address, Frist because  some addersses get muyltiple short addresses (hash collision)
 
-        var c1 = GetAddressFromString(prevTransactionId.PadRight(55, 'T')).First(); //T for address, Frist because  some addersses get muyltiple short addresses (hash collision)
-        var d1 = GetAddressFromString(transactionId.PadRight(55, 'T')).First(); //T for address, Frist because  some addersses get muyltiple short addresses (hash collision)
+        var c1 = GetAddressFromString(prevTransactionId.PadRight(AddressRecord.AddressLength, 'T')).First(); //T for address, Frist because  some addersses get muyltiple short addresses (hash collision)
+        var d1 = GetAddressFromString(transactionId.PadRight(AddressRecord.AddressLength, 'T')).First(); //T for address, Frist because  some addersses get muyltiple short addresses (hash collision)
 
         //if (r2.Count == 1)
         //{
@@ -124,14 +258,24 @@ public sealed class DataRoot : IDisposable
         return;
     }
 
-    public List<QuadrupleRecord> GetTransactionFromV0(ulong v0)
+    public List<QuadrupleRecord> GetTransactionV0(ulong v0)
     {
         return Transactions.FindByV0(v0).ToList();
     }
 
-    public List<QuadrupleRecord> GetTransactionToV1(ulong v1)
+    public List<QuadrupleRecord> GetTransactionV1(ulong v1)
     {
         return Transactions.FindByV1(v1).ToList();
+    }
+
+    public List<QuadrupleRecord> GetTransactionV2(ulong v2)
+    {
+        return Transactions.FindByV2(v2).ToList();
+    }
+
+    public List<QuadrupleRecord> GetTransactionV3(ulong v3)
+    {
+        return Transactions.FindByV3(v3).ToList();
     }
 
     /// <summary>Every transaction written in <paramref name="block"/>.</summary>
