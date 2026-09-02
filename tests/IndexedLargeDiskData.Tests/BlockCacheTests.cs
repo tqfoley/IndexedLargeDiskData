@@ -17,11 +17,11 @@ public class BlockCacheTests
         using BlockCache cache = new(BlockSize, BlockSize * 16);
         using CachedFile file = Register(cache, path);
 
-        for (int block = 0; block < 4; block++)
+        for (ulong block = 0; block < 4; block++)
         {
             using BlockLease lease = file.Acquire(block);
             Assert.Equal(BlockSize, lease.Length);
-            Assert.True(lease.Span.SequenceEqual(content.AsSpan(block * BlockSize, BlockSize)));
+            Assert.True(lease.Span.SequenceEqual(content.AsSpan((int)block * BlockSize, BlockSize)));
         }
     }
 
@@ -52,8 +52,8 @@ public class BlockCacheTests
         file.Acquire(0).Dispose();
         file.Acquire(1).Dispose();
 
-        Assert.Equal(2, cache.Misses);
-        Assert.Equal(1, cache.Hits);
+        Assert.Equal(2UL, cache.Misses);
+        Assert.Equal(1UL, cache.Hits);
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class BlockCacheTests
         using BlockCache cache = new(BlockSize, BlockSize * 16);
         using CachedFile file = Register(cache, path);
 
-        for (int block = 0; block < blocks; block++)
+        for (ulong block = 0; block < blocks; block++)
         {
             file.Acquire(block).Dispose();
         }
@@ -89,10 +89,10 @@ public class BlockCacheTests
 
         for (int pass = 0; pass < 3; pass++)
         {
-            for (int block = 0; block < blocks; block++)
+            for (ulong block = 0; block < blocks; block++)
             {
                 using BlockLease lease = file.Acquire(block);
-                Assert.True(lease.Span.SequenceEqual(content.AsSpan(block * BlockSize, BlockSize)));
+                Assert.True(lease.Span.SequenceEqual(content.AsSpan((int)block * BlockSize, BlockSize)));
             }
         }
     }

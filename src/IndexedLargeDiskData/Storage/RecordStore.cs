@@ -16,6 +16,9 @@ public sealed class RecordStore<T> : IDisposable
 {
     private const int MaxRecordSize = 512;
 
+    /// <summary>The record width as an unsigned value, for the ordinal-to-byte arithmetic below.</summary>
+    private static ulong RecordBytes => (ulong)T.Size;
+
     private readonly SegmentedFileSet _files;
     private readonly Lock _appendLock = new();
     private bool _disposed;
@@ -29,8 +32,8 @@ public sealed class RecordStore<T> : IDisposable
 
         // Aligning the segment cap to a whole number of records keeps any single record inside one
         // file, so a read never has to stitch bytes across two handles.
-        long segmentSize = options.SegmentSize / T.Size * T.Size;
-        if (segmentSize < T.Size)
+        ulong segmentSize = options.SegmentSize / RecordBytes * RecordBytes;
+        if (segmentSize < RecordBytes)
         {
             throw new ArgumentException("SegmentSize is smaller than a single record.", nameof(options));
         }
@@ -39,32 +42,32 @@ public sealed class RecordStore<T> : IDisposable
 
         _files = new SegmentedFileSet(directory, "data", ".dat", segmentSize, writeBuffer, cache);
 
-        if (_files.Length % T.Size != 0)
+        if (_files.Length % RecordBytes != 0)
         {
             // A torn append at the tail; drop the partial record.
-            _files.TruncateTo(_files.Length / T.Size * T.Size);
+            _files.TruncateTo(_files.Length / RecordBytes * RecordBytes);
         }
     }
 
     /// <summary>Gets the number of records in the store, including any not yet flushed.</summary>
-    public long Count => _files.Length / T.Size;
+    public ulong Count => _files.Length / RecordBytes;
 
     /// <summary>Appends one record and returns its ordinal.</summary>
-    public long Append(in T record)
+    public ulong Append(in T record)
     {
         Span<byte> scratch = stackalloc byte[T.Size];
         T.Write(scratch, record);
 
         lock (_appendLock)
         {
-            long ordinal = _files.Length / T.Size;
+            ulong ordinal = _files.Length / RecordBytes;
             _files.Append(scratch);
             return ordinal;
         }
     }
 
     /// <summary>Appends a batch of records and returns the ordinal of the first one.</summary>
-    public long AppendRange(ReadOnlySpan<T> records)
+    public ulong AppendRange(ReadOnlySpan<T> records)
     {
         if (records.IsEmpty)
         {
@@ -79,40 +82,40 @@ public sealed class RecordStore<T> : IDisposable
 
         lock (_appendLock)
         {
-            long first = _files.Length / T.Size;
+            ulong first = _files.Length / RecordBytes;
             _files.Append(scratch);
             return first;
         }
     }
 
     /// <summary>Reads the record at <paramref name="ordinal"/>.</summary>
-    public T Read(long ordinal)
+    public T Read(ulong ordinal)
     {
-        if ((ulong)ordinal >= (ulong)Count)
+        if (ordinal >= Count)
         {
             throw new ArgumentOutOfRangeException(nameof(ordinal));
         }
 
         Span<byte> scratch = stackalloc byte[T.Size];
-        _files.Read(ordinal * T.Size, scratch);
+        _files.Read(ordinal * RecordBytes, scratch);
         return T.Read(scratch);
     }
 
     /// <summary>Reads a contiguous run of records starting at <paramref name="startOrdinal"/>.</summary>
-    public void ReadRange(long startOrdinal, Span<T> destination)
+    public void ReadRange(ulong startOrdinal, Span<T> destination)
     {
         if (destination.IsEmpty)
         {
             return;
         }
 
-        if (startOrdinal < 0 || startOrdinal + destination.Length > Count)
+        if (startOrdinal + (ulong)destination.Length > Count)
         {
             throw new ArgumentOutOfRangeException(nameof(startOrdinal));
         }
 
         byte[] scratch = new byte[destination.Length * T.Size];
-        _files.Read(startOrdinal * T.Size, scratch);
+        _files.Read(startOrdinal * RecordBytes, scratch);
 
         for (int i = 0; i < destination.Length; i++)
         {
@@ -125,7 +128,7 @@ public sealed class RecordStore<T> : IDisposable
     public void Flush(bool fsync = true) => _files.Flush(fsync);
 
     /// <summary>Drops every record at or after <paramref name="count"/>.</summary>
-    internal void TruncateTo(long count) => _files.TruncateTo(count * T.Size);
+    internal void TruncateTo(ulong count) => _files.TruncateTo(count * RecordBytes);
 
     /// <inheritdoc />
     public void Dispose()

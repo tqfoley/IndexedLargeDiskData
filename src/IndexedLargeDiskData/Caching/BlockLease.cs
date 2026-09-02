@@ -51,13 +51,13 @@ internal sealed class CacheBlock
     private int _refCount;
     private int _accessed;
 
-    internal CacheBlock(long key, int initialRefCount = 0)
+    internal CacheBlock(ulong key, int initialRefCount = 0)
     {
         Key = key;
         _refCount = initialRefCount;
     }
 
-    internal long Key { get; }
+    internal ulong Key { get; }
 
     internal nint Pointer { get; set; }
 

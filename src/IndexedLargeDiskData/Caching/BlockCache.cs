@@ -22,11 +22,11 @@ namespace IndexedLargeDiskData.Caching;
 public sealed class BlockCache : IDisposable
 {
     private const int FileIdShift = 40;
-    private const long BlockIndexMask = (1L << FileIdShift) - 1;
+    private const ulong BlockIndexMask = (1L << FileIdShift) - 1;
     private const int MaxFileId = (1 << (63 - FileIdShift)) - 1;
-    private const long SlabBytes = 256L * 1024 * 1024;
+    private const ulong SlabBytes = 256L * 1024 * 1024;
 
-    private readonly ConcurrentDictionary<long, CacheBlock> _blocks = new();
+    private readonly ConcurrentDictionary<ulong, CacheBlock> _blocks = new();
     private readonly ConcurrentDictionary<int, CachedFile> _files = new();
     private readonly ConcurrentStack<int> _reusableFileIds = new();
     private readonly CacheBlock?[] _clock;
@@ -38,22 +38,22 @@ public sealed class BlockCache : IDisposable
     private int _freeSlotCount;
     private int _hand;
     private int _nextFileId;
-    private long _hits;
-    private long _misses;
-    private long _evictions;
+    private ulong _hits;
+    private ulong _misses;
+    private ulong _evictions;
     private bool _disposed;
 
     /// <summary>Creates a cache that holds <paramref name="budgetBytes"/> of blocks.</summary>
     /// <param name="blockSize">Block size in bytes. Must be a power of two of at least 512.</param>
     /// <param name="budgetBytes">Total native memory to commit, rounded down to a whole block count.</param>
-    public BlockCache(int blockSize, long budgetBytes)
+    public BlockCache(int blockSize, ulong budgetBytes)
     {
         if (blockSize < 512 || (blockSize & (blockSize - 1)) != 0)
         {
             throw new ArgumentException("Block size must be a power of two of at least 512.", nameof(blockSize));
         }
 
-        long capacity = budgetBytes / blockSize;
+        ulong capacity = budgetBytes / (ulong)blockSize;
         if (capacity < 16)
         {
             throw new ArgumentException("Budget must hold at least 16 blocks.", nameof(budgetBytes));
@@ -96,13 +96,13 @@ public sealed class BlockCache : IDisposable
     public int Resident => _blocks.Count;
 
     /// <summary>Gets the number of leases served from memory.</summary>
-    public long Hits => Interlocked.Read(ref _hits);
+    public ulong Hits => Interlocked.Read(ref _hits);
 
     /// <summary>Gets the number of leases that had to read from disk.</summary>
-    public long Misses => Interlocked.Read(ref _misses);
+    public ulong Misses => Interlocked.Read(ref _misses);
 
     /// <summary>Gets the number of blocks reclaimed by CLOCK.</summary>
-    public long Evictions => Interlocked.Read(ref _evictions);
+    public ulong Evictions => Interlocked.Read(ref _evictions);
 
     /// <summary>Registers an open file handle with the cache, which takes ownership of it.</summary>
     /// <param name="handle">An open handle. Disposed when the returned <see cref="CachedFile"/> is disposed.</param>
@@ -126,7 +126,7 @@ public sealed class BlockCache : IDisposable
     }
 
     /// <summary>Acquires a lease on one block of <paramref name="file"/>, reading it if necessary.</summary>
-    public BlockLease Acquire(CachedFile file, long blockIndex)
+    public BlockLease Acquire(CachedFile file, ulong blockIndex)
     {
         ArgumentNullException.ThrowIfNull(file);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -136,7 +136,7 @@ public sealed class BlockCache : IDisposable
             throw new ArgumentOutOfRangeException(nameof(blockIndex));
         }
 
-        long key = MakeKey(file.Id, blockIndex);
+        ulong key = MakeKey(file.Id, blockIndex);
 
         while (true)
         {
@@ -183,7 +183,7 @@ public sealed class BlockCache : IDisposable
                 }
                 catch
                 {
-                    _blocks.TryRemove(new KeyValuePair<long, CacheBlock>(key, fresh));
+                    _blocks.TryRemove(new KeyValuePair<ulong, CacheBlock>(key, fresh));
                     if (fresh.Slot >= 0)
                     {
                         ReleaseSlot(fresh.Slot);
@@ -201,9 +201,9 @@ public sealed class BlockCache : IDisposable
     }
 
     /// <summary>Drops the cached copy of one block, if it is resident and unpinned.</summary>
-    public void Invalidate(int fileId, long blockIndex)
+    public void Invalidate(int fileId, ulong blockIndex)
     {
-        long key = MakeKey(fileId, blockIndex);
+        ulong key = MakeKey(fileId, blockIndex);
         if (_blocks.TryGetValue(key, out CacheBlock? block))
         {
             Discard(key, block);
@@ -213,10 +213,10 @@ public sealed class BlockCache : IDisposable
     /// <summary>Drops every cached block belonging to a file.</summary>
     public void InvalidateFile(int fileId)
     {
-        long low = MakeKey(fileId, 0);
-        long high = low + BlockIndexMask;
+        ulong low = MakeKey(fileId, 0);
+        ulong high = low + BlockIndexMask;
 
-        foreach (KeyValuePair<long, CacheBlock> pair in _blocks)
+        foreach (KeyValuePair<ulong, CacheBlock> pair in _blocks)
         {
             if (pair.Key >= low && pair.Key <= high)
             {
@@ -266,11 +266,11 @@ public sealed class BlockCache : IDisposable
         }
     }
 
-    private static long MakeKey(int fileId, long blockIndex) => ((long)fileId << FileIdShift) | blockIndex;
+    private static ulong MakeKey(int fileId, ulong blockIndex) => ((ulong)fileId << FileIdShift) | blockIndex;
 
-    private void Discard(long key, CacheBlock block)
+    private void Discard(ulong key, CacheBlock block)
     {
-        if (!_blocks.TryRemove(new KeyValuePair<long, CacheBlock>(key, block)))
+        if (!_blocks.TryRemove(new KeyValuePair<ulong, CacheBlock>(key, block)))
         {
             return;
         }
@@ -294,12 +294,12 @@ public sealed class BlockCache : IDisposable
 
     private unsafe void AllocateSlabs()
     {
-        long remaining = (long)Capacity * BlockSize;
+        ulong remaining = (ulong)Capacity * (ulong)BlockSize;
         int slot = 0;
 
         while (remaining > 0)
         {
-            long take = Math.Min(SlabBytes - (SlabBytes % BlockSize), remaining);
+            ulong take = Math.Min(SlabBytes - (SlabBytes % (ulong)BlockSize), remaining);
             void* slab = NativeMemory.AlignedAlloc((nuint)take, (nuint)BlockSize);
             if (slab is null)
             {
@@ -308,7 +308,7 @@ public sealed class BlockCache : IDisposable
 
             _slabs.Add((nint)slab);
 
-            for (long offset = 0; offset + BlockSize <= take; offset += BlockSize)
+            for (ulong offset = 0; offset + (ulong)BlockSize <= take; offset += (ulong)BlockSize)
             {
                 _slotPointers[slot++] = (nint)((byte*)slab + offset);
             }
@@ -327,8 +327,8 @@ public sealed class BlockCache : IDisposable
             }
 
             // Two full sweeps: the first clears reference bits, the second reclaims.
-            long limit = 2L * Capacity;
-            for (long scanned = 0; scanned < limit; scanned++)
+            ulong limit = 2UL * (ulong)Capacity;
+            for (ulong scanned = 0; scanned < limit; scanned++)
             {
                 int slot = _hand;
                 if (_hand + 1 == Capacity)
@@ -357,7 +357,7 @@ public sealed class BlockCache : IDisposable
                 }
 
                 candidate.MarkEvicted();
-                _blocks.TryRemove(new KeyValuePair<long, CacheBlock>(candidate.Key, candidate));
+                _blocks.TryRemove(new KeyValuePair<ulong, CacheBlock>(candidate.Key, candidate));
                 _clock[slot] = null;
                 candidate.Slot = -1;
                 Interlocked.Increment(ref _evictions);
@@ -387,22 +387,22 @@ public sealed class BlockCache : IDisposable
         }
     }
 
-    private unsafe int ReadBlock(CachedFile file, long blockIndex, nint destination)
+    private unsafe int ReadBlock(CachedFile file, ulong blockIndex, nint destination)
     {
-        long offset = blockIndex * BlockSize;
-        long length = file.Length;
+        ulong offset = blockIndex * (ulong)BlockSize;
+        ulong length = file.Length;
         if (offset >= length)
         {
             return 0;
         }
 
-        int wanted = (int)Math.Min(BlockSize, length - offset);
+        int wanted = (int)Math.Min((ulong)BlockSize, length - offset);
         Span<byte> target = new((void*)destination, wanted);
 
         int total = 0;
         while (total < wanted)
         {
-            int read = RandomAccess.Read(file.Handle, target[total..], offset + total);
+            int read = RandomAccess.Read(file.Handle, target[total..], (long)(offset + (ulong)total));
             if (read == 0)
             {
                 break;

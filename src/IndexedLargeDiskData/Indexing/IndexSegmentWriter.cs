@@ -11,7 +11,7 @@ namespace IndexedLargeDiskData.Indexing;
 internal static class IndexSegmentWriter
 {
     /// <summary>Entries written between progress reports.</summary>
-    private const long ProgressInterval = 1 << 16;
+    private const ulong ProgressInterval = 1 << 16;
 
     /// <summary>Writes a segment and returns its header.</summary>
     /// <param name="path">Destination path. Overwritten if it exists.</param>
@@ -27,30 +27,30 @@ internal static class IndexSegmentWriter
     internal static SegmentHeader Write(
         string path,
         IEnumerable<IndexEntry> entries,
-        long entryCount,
+        ulong entryCount,
         int level,
-        long coveredUpTo,
+        ulong coveredUpTo,
         StoreOptions options,
-        Action<long>? onProgress = null)
+        Action<ulong>? onProgress = null)
     {
-        long sinceReport = 0;
-        long fenceCount;
+        ulong sinceReport = 0;
+        ulong fenceCount;
         if (entryCount == 0)
         {
             fenceCount = 0;
         }
         else
         {
-            fenceCount = (entryCount + options.FenceStride - 1) / options.FenceStride;
+            fenceCount = (entryCount + (ulong)options.FenceStride - 1) / (ulong)options.FenceStride;
         }
-        long[] fences = new long[fenceCount];
+        ulong[] fences = new ulong[fenceCount];
         int bloomBlocks = BlockedBloom.BlockCount(entryCount, options.BloomBitsPerKey);
-        byte[] bloom = new byte[(long)bloomBlocks * BlockedBloom.BlockBytes];
+        byte[] bloom = new byte[(ulong)bloomBlocks * BlockedBloom.BlockBytes];
 
-        long written = 0;
-        long minKey = long.MaxValue;
-        long maxKey = long.MinValue;
-        long previous = long.MinValue;
+        ulong written = 0;
+        ulong minKey = ulong.MaxValue;
+        ulong maxKey = ulong.MinValue;
+        ulong previous = ulong.MinValue;
         bool first = true;
 
         // Reserve the header; it is rewritten once the key range is known.
@@ -73,9 +73,9 @@ internal static class IndexSegmentWriter
                     throw new InvalidOperationException("More entries were supplied than declared.");
                 }
 
-                if (written % options.FenceStride == 0)
+                if (written % (ulong)options.FenceStride == 0)
                 {
-                    fences[written / options.FenceStride] = entry.Key;
+                    fences[written / (ulong)options.FenceStride] = entry.Key;
                 }
 
                 BlockedBloom.Add(bloom, bloomBlocks, entry.Key);
@@ -130,10 +130,10 @@ internal static class IndexSegmentWriter
             WritePadded(stream, header.FenceOffset);
             if (fences.Length > 0)
             {
-                byte[] fenceBytes = new byte[fences.Length * sizeof(long)];
+                byte[] fenceBytes = new byte[fences.Length * sizeof(ulong)];
                 for (int i = 0; i < fences.Length; i++)
                 {
-                    BinaryPrimitives.WriteInt64LittleEndian(fenceBytes.AsSpan(i * sizeof(long)), fences[i]);
+                    BinaryPrimitives.WriteUInt64LittleEndian(fenceBytes.AsSpan(i * sizeof(ulong)), fences[i]);
                 }
 
                 stream.Write(fenceBytes, 0, fenceBytes.Length);
@@ -153,13 +153,15 @@ internal static class IndexSegmentWriter
         }
     }
 
-    private static void WritePadded(FileStream stream, long targetOffset)
+    private static void WritePadded(FileStream stream, ulong targetOffset)
     {
-        long gap = targetOffset - stream.Position;
-        if (gap < 0)
+        ulong position = (ulong)stream.Position;
+        if (targetOffset < position)
         {
             throw new InvalidOperationException("Segment sections were written out of order.");
         }
+
+        ulong gap = targetOffset - position;
 
         if (gap == 0)
         {

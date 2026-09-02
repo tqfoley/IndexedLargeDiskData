@@ -12,14 +12,14 @@ public class RecordStoreTests
         using TempDirectory dir = new();
         StoreOptions options = TestData.SmallOptions();
         using BlockCache cache = new(options.BlockSize, options.CacheBudgetBytes);
-        using RecordStore<TripleRecord> store = new(Path.Combine(dir.Path, "data"), options, cache);
+        using RecordStore<QuadrupleRecord> store = new(Path.Combine(dir.Path, "data"), options, cache);
 
-        for (long i = 0; i < 100; i++)
+        for (ulong i = 0; i < 100; i++)
         {
-            Assert.Equal(i, store.Append(new TripleRecord(i, i * 2, i * 3)));
+            Assert.Equal(i, store.Append(new QuadrupleRecord(i, i * 2, i * 3, i * 4, i * 5)));
         }
 
-        Assert.Equal(100, store.Count);
+        Assert.Equal(100UL, store.Count);
     }
 
     [Fact]
@@ -28,12 +28,12 @@ public class RecordStoreTests
         using TempDirectory dir = new();
         StoreOptions options = TestData.SmallOptions();
         using BlockCache cache = new(options.BlockSize, options.CacheBudgetBytes);
-        using RecordStore<TripleRecord> store = new(Path.Combine(dir.Path, "data"), options, cache);
+        using RecordStore<QuadrupleRecord> store = new(Path.Combine(dir.Path, "data"), options, cache);
 
-        long ordinal = store.Append(new TripleRecord(11, 22, 33));
+        ulong ordinal = store.Append(new QuadrupleRecord(11, 22, 33, 44, 55));
 
         // No flush: the record only exists in memory at this point.
-        Assert.Equal(new TripleRecord(11, 22, 33), store.Read(ordinal));
+        Assert.Equal(new QuadrupleRecord(11, 22, 33, 44, 55), store.Read(ordinal));
     }
 
     [Fact]
@@ -42,29 +42,31 @@ public class RecordStoreTests
         using TempDirectory dir = new();
         StoreOptions options = TestData.SmallOptions();
         string path = Path.Combine(dir.Path, "data");
-        const int count = 1000;
+        const ulong count = 1000;
 
         using (BlockCache cache = new(options.BlockSize, options.CacheBudgetBytes))
-        using (RecordStore<TripleRecord> store = new(path, options, cache))
+        using (RecordStore<QuadrupleRecord> store = new(path, options, cache))
         {
-            for (int i = 0; i < count; i++)
+            for (ulong i = 0; i < count; i++)
             {
-                store.Append(new TripleRecord(i, -i, long.MaxValue - i));
+                store.Append(new QuadrupleRecord(i, ulong.MaxValue - i, (ulong.MaxValue / 2) + i, i * 2, i * 3));
             }
 
             store.Flush();
         }
 
-        // 4080 usable bytes per segment at 24 bytes a record: this must have rolled over.
+        // 4080 usable bytes per segment at 40 bytes a record: this must have rolled over.
         Assert.True(Directory.GetFiles(path, "*.dat").Length > 1);
 
         using BlockCache reopenedCache = new(options.BlockSize, options.CacheBudgetBytes);
-        using RecordStore<TripleRecord> reopened = new(path, options, reopenedCache);
+        using RecordStore<QuadrupleRecord> reopened = new(path, options, reopenedCache);
 
         Assert.Equal(count, reopened.Count);
-        for (int i = 0; i < count; i++)
+        for (ulong i = 0; i < count; i++)
         {
-            Assert.Equal(new TripleRecord(i, -i, long.MaxValue - i), reopened.Read(i));
+            Assert.Equal(
+                new QuadrupleRecord(i, ulong.MaxValue - i, (ulong.MaxValue / 2) + i, i * 2, i * 3),
+                reopened.Read(i));
         }
     }
 
@@ -74,21 +76,21 @@ public class RecordStoreTests
         using TempDirectory dir = new();
         StoreOptions options = TestData.SmallOptions();
         using BlockCache cache = new(options.BlockSize, options.CacheBudgetBytes);
-        using RecordStore<TripleRecord> store = new(Path.Combine(dir.Path, "data"), options, cache);
+        using RecordStore<QuadrupleRecord> store = new(Path.Combine(dir.Path, "data"), options, cache);
 
-        for (int i = 0; i < 500; i++)
+        for (ulong i = 0; i < 500; i++)
         {
-            store.Append(new TripleRecord(i, i, i));
+            store.Append(new QuadrupleRecord(i, i, i, i, i));
         }
 
         store.Flush();
 
-        TripleRecord[] window = new TripleRecord[50];
+        QuadrupleRecord[] window = new QuadrupleRecord[50];
         store.ReadRange(200, window);
 
-        for (int i = 0; i < window.Length; i++)
+        for (ulong i = 0; i < (ulong)window.Length; i++)
         {
-            Assert.Equal(new TripleRecord(200 + i, 200 + i, 200 + i), window[i]);
+            Assert.Equal(new QuadrupleRecord(200 + i, 200 + i, 200 + i, 200 + i, 200 + i), window[i]);
         }
     }
 
@@ -100,12 +102,13 @@ public class RecordStoreTests
         using BlockCache cache = new(options.BlockSize, options.CacheBudgetBytes);
         using RecordStore<AddressRecord> store = new(Path.Combine(dir.Path, "data"), options, cache);
 
-        AddressRecord[] batch = [.. Enumerable.Range(0, 300).Select(i => new AddressRecord(i, TestData.Address(i)))];
-        Assert.Equal(0, store.AppendRange(batch));
+        AddressRecord[] batch =
+            [.. Enumerable.Range(0, 300).Select(i => new AddressRecord((ulong)i, TestData.Address((ulong)i)))];
+        Assert.Equal(0UL, store.AppendRange(batch));
         store.Flush();
 
-        Assert.Equal(batch.Length, store.Count);
-        for (int i = 0; i < batch.Length; i++)
+        Assert.Equal((ulong)batch.Length, store.Count);
+        for (ulong i = 0; i < (ulong)batch.Length; i++)
         {
             Assert.Equal(batch[i], store.Read(i));
         }
@@ -119,9 +122,9 @@ public class RecordStoreTests
         string path = Path.Combine(dir.Path, "data");
 
         using (BlockCache cache = new(options.BlockSize, options.CacheBudgetBytes))
-        using (RecordStore<TripleRecord> store = new(path, options, cache))
+        using (RecordStore<QuadrupleRecord> store = new(path, options, cache))
         {
-            store.Append(new TripleRecord(1, 2, 3));
+            store.Append(new QuadrupleRecord(1, 2, 3, 4, 5));
             store.Flush();
         }
 
@@ -133,9 +136,9 @@ public class RecordStoreTests
         }
 
         using BlockCache reopenedCache = new(options.BlockSize, options.CacheBudgetBytes);
-        using RecordStore<TripleRecord> reopened = new(path, options, reopenedCache);
+        using RecordStore<QuadrupleRecord> reopened = new(path, options, reopenedCache);
 
-        Assert.Equal(1, reopened.Count);
-        Assert.Equal(new TripleRecord(1, 2, 3), reopened.Read(0));
+        Assert.Equal(1UL, reopened.Count);
+        Assert.Equal(new QuadrupleRecord(1, 2, 3, 4, 5), reopened.Read(0));
     }
 }

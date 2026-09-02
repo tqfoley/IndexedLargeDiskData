@@ -31,7 +31,7 @@ internal sealed class MemTable
     internal int Count => _sortedCount + _tailCount;
 
     /// <summary>Buffers one entry.</summary>
-    internal void Add(long key, long ordinal)
+    internal void Add(ulong key, ulong ordinal)
     {
         _tail[_tailCount++] = new IndexEntry(key, ordinal);
         if (_tailCount == _tailCapacity)
@@ -41,7 +41,7 @@ internal sealed class MemTable
     }
 
     /// <summary>Appends every buffered ordinal stored under <paramref name="key"/>.</summary>
-    internal int Lookup(long key, List<long> results)
+    internal int Lookup(ulong key, List<ulong> results)
     {
         int found = 0;
 

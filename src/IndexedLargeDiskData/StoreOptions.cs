@@ -17,11 +17,11 @@ public sealed class StoreOptions
     public int BlockSize { get; init; } = 4096;
 
     /// <summary>Total bytes of native memory the shared block cache may hold. Committed up front.</summary>
-    public long CacheBudgetBytes { get; init; } = 20L * 1024 * 1024 * 1024;
+    public ulong CacheBudgetBytes { get; init; } = 20L * 1024 * 1024 * 1024;
 
     /// <summary>Maximum bytes in a single data segment file before a new one is started.</summary>
     /// <remarks>Rounded down to a whole number of records so no record ever straddles two files.</remarks>
-    public long SegmentSize { get; init; } = 1L << 30;
+    public ulong SegmentSize { get; init; } = 1L << 30;
 
     /// <summary>Number of index entries buffered in memory before they are flushed as a sorted segment.</summary>
     /// <remarks>
@@ -39,7 +39,7 @@ public sealed class StoreOptions
     /// are scattered and cannot be streamed. At the default of 128M entries and 10 bits per key that
     /// is about 160 MiB. A merge that would exceed the cap spills into several output segments.
     /// </remarks>
-    public long MaxSegmentEntries { get; init; } = 1L << 27;
+    public ulong MaxSegmentEntries { get; init; } = 1L << 27;
 
     /// <summary>One in-memory fence key is kept per this many index entries.</summary>
     /// <remarks>4096 costs 8 bytes of RAM per 64 KiB of index and narrows a lookup to one window.</remarks>
@@ -118,15 +118,15 @@ public sealed class StoreOptions
 
         if (BlockSize < 512 || (BlockSize & (BlockSize - 1)) != 0)
             throw new ArgumentException("BlockSize must be a power of two >= 512.", nameof(BlockSize));
-        if (CacheBudgetBytes < BlockSize * 16L)
+        if (CacheBudgetBytes < (ulong)BlockSize * 16UL)
             throw new ArgumentException("CacheBudgetBytes must hold at least 16 blocks.", nameof(CacheBudgetBytes));
-        if (SegmentSize < BlockSize)
+        if (SegmentSize < (ulong)BlockSize)
             throw new ArgumentException("SegmentSize must be at least one block.", nameof(SegmentSize));
         if (MemTableEntries < 1024)
             throw new ArgumentException("MemTableEntries must be at least 1024.", nameof(MemTableEntries));
         if (MergeFanout < 2)
             throw new ArgumentException("MergeFanout must be at least 2.", nameof(MergeFanout));
-        if (MaxSegmentEntries < MemTableEntries)
+        if (MaxSegmentEntries < (ulong)MemTableEntries)
             throw new ArgumentException("MaxSegmentEntries must be at least MemTableEntries.", nameof(MaxSegmentEntries));
         if (FenceStride < 16)
             throw new ArgumentException("FenceStride must be at least 16.", nameof(FenceStride));

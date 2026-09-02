@@ -21,16 +21,16 @@ namespace IndexedLargeDiskData.Indexing;
 /// </remarks>
 internal sealed class IndexSegment : IDisposable
 {
-    internal const long Magic = 0x314745534458_4449L;
+    internal const ulong Magic = 0x314745534458_4449L;
     internal const int Version = 1;
     internal const int HeaderSize = 128;
 
     private readonly CachedFile _file;
     private readonly int _blockSize;
-    private readonly long[] _fences;
+    private readonly ulong[] _fences;
     private bool _disposed;
 
-    private IndexSegment(int id, string path, CachedFile file, int blockSize, in SegmentHeader header, long[] fences)
+    private IndexSegment(int id, string path, CachedFile file, int blockSize, in SegmentHeader header, ulong[] fences)
     {
         Id = id;
         Path = path;
@@ -49,7 +49,7 @@ internal sealed class IndexSegment : IDisposable
     internal SegmentHeader Header { get; }
 
     /// <summary>Gets the number of entries in the segment.</summary>
-    internal long EntryCount => Header.EntryCount;
+    internal ulong EntryCount => Header.EntryCount;
 
     /// <summary>Gets the merge level this segment sits at.</summary>
     internal int Level => Header.Level;
@@ -58,7 +58,7 @@ internal sealed class IndexSegment : IDisposable
     internal int FenceStride => Header.FenceStride;
 
     /// <summary>Gets the exclusive record ordinal up to which this segment is complete.</summary>
-    internal long CoveredUpTo => Header.CoveredUpTo;
+    internal ulong CoveredUpTo => Header.CoveredUpTo;
 
     /// <summary>Opens an existing segment file and loads its fences.</summary>
     internal static IndexSegment Open(string path, BlockCache cache)
@@ -83,14 +83,14 @@ internal sealed class IndexSegment : IDisposable
             ReadExact(handle, 0, raw);
             SegmentHeader header = SegmentHeader.Read(raw, path);
 
-            long[] fences = new long[header.FenceCount];
+            ulong[] fences = new ulong[header.FenceCount];
             if (header.FenceCount > 0)
             {
-                byte[] buffer = new byte[header.FenceCount * sizeof(long)];
+                byte[] buffer = new byte[header.FenceCount * sizeof(ulong)];
                 ReadExact(handle, header.FenceOffset, buffer);
                 for (int i = 0; i < fences.Length; i++)
                 {
-                    fences[i] = BinaryPrimitives.ReadInt64LittleEndian(buffer.AsSpan(i * sizeof(long)));
+                    fences[i] = BinaryPrimitives.ReadUInt64LittleEndian(buffer.AsSpan(i * sizeof(ulong)));
                 }
             }
 
@@ -109,7 +109,7 @@ internal sealed class IndexSegment : IDisposable
 
     /// <summary>Appends every ordinal stored under <paramref name="key"/> to <paramref name="results"/>.</summary>
     /// <returns>The number of ordinals appended.</returns>
-    internal int Lookup(long key, List<long> results)
+    internal int Lookup(ulong key, List<ulong> results)
     {
         if (EntryCount == 0 || key < Header.MinKey || key > Header.MaxKey)
         {
@@ -121,8 +121,8 @@ internal sealed class IndexSegment : IDisposable
             return 0;
         }
 
-        (long lo, long hi) = FenceRange(key);
-        long index = LowerBound(key, lo, hi);
+        (ulong lo, ulong hi) = FenceRange(key);
+        ulong index = LowerBound(key, lo, hi);
 
         int found = 0;
         while (index < hi)
@@ -147,12 +147,12 @@ internal sealed class IndexSegment : IDisposable
         int perBuffer = Math.Max(bufferBytes / IndexEntry.Size, 1);
         byte[] buffer = new byte[perBuffer * IndexEntry.Size];
 
-        long remaining = EntryCount;
-        long offset = Header.EntriesOffset;
+        ulong remaining = EntryCount;
+        ulong offset = Header.EntriesOffset;
 
         while (remaining > 0)
         {
-            int take = (int)Math.Min(perBuffer, remaining);
+            int take = (int)Math.Min((ulong)perBuffer, remaining);
             int bytes = take * IndexEntry.Size;
             ReadExact(_file.Handle, offset, buffer, bytes);
 
@@ -161,8 +161,8 @@ internal sealed class IndexSegment : IDisposable
                 yield return EntryAt(buffer, i);
             }
 
-            offset += bytes;
-            remaining -= take;
+            offset += (ulong)bytes;
+            remaining -= (ulong)take;
         }
     }
 
@@ -181,15 +181,15 @@ internal sealed class IndexSegment : IDisposable
         _file.Dispose();
     }
 
-    internal static void ReadExact(SafeFileHandle handle, long offset, byte[] buffer, int count) =>
+    internal static void ReadExact(SafeFileHandle handle, ulong offset, byte[] buffer, int count) =>
         ReadExact(handle, offset, buffer.AsSpan(0, count));
 
-    internal static void ReadExact(SafeFileHandle handle, long offset, Span<byte> destination)
+    internal static void ReadExact(SafeFileHandle handle, ulong offset, Span<byte> destination)
     {
         int total = 0;
         while (total < destination.Length)
         {
-            int read = RandomAccess.Read(handle, destination[total..], offset + total);
+            int read = RandomAccess.Read(handle, destination[total..], (long)(offset + (ulong)total));
             if (read == 0)
             {
                 throw new EndOfStreamException("Index segment is truncated.");
@@ -199,7 +199,7 @@ internal sealed class IndexSegment : IDisposable
         }
     }
 
-    private bool BloomMayContain(long key)
+    private bool BloomMayContain(ulong key)
     {
         int block = BlockedBloom.BlockOf(key, Header.BloomBlockCount);
         Span<byte> raw = stackalloc byte[BlockedBloom.BlockBytes];
@@ -207,7 +207,7 @@ internal sealed class IndexSegment : IDisposable
         return BlockedBloom.MayContain(raw, key, Header.BloomBlockCount);
     }
 
-    private (long Low, long High) FenceRange(long key)
+    private (ulong Low, ulong High) FenceRange(ulong key)
     {
         if (_fences.Length == 0)
         {
@@ -217,30 +217,30 @@ internal sealed class IndexSegment : IDisposable
         int lower = LowerBoundFence(key, inclusive: true);
         int upper = LowerBoundFence(key, inclusive: false);
 
-        long low;
+        ulong low;
         if (lower == 0)
         {
             low = 0;
         }
         else
         {
-            low = (long)(lower - 1) * FenceStride;
+            low = (ulong)(lower - 1) * (ulong)FenceStride;
         }
 
-        long high;
+        ulong high;
         if (upper >= _fences.Length)
         {
             high = EntryCount;
         }
         else
         {
-            high = Math.Min(EntryCount, (long)upper * FenceStride);
+            high = Math.Min(EntryCount, (ulong)upper * (ulong)FenceStride);
         }
         return (low, Math.Max(high, low));
     }
 
     /// <summary>Finds the first fence at or after <paramref name="key"/>, or strictly after it.</summary>
-    private int LowerBoundFence(long key, bool inclusive)
+    private int LowerBoundFence(ulong key, bool inclusive)
     {
         int lo = 0;
         int hi = _fences.Length;
@@ -269,11 +269,11 @@ internal sealed class IndexSegment : IDisposable
         return lo;
     }
 
-    private long LowerBound(long key, long lo, long hi)
+    private ulong LowerBound(ulong key, ulong lo, ulong hi)
     {
         while (lo < hi)
         {
-            long mid = lo + ((hi - lo) >> 1);
+            ulong mid = lo + ((hi - lo) >> 1);
             if (ReadEntry(mid).Key < key)
             {
                 lo = mid + 1;
@@ -287,19 +287,19 @@ internal sealed class IndexSegment : IDisposable
         return lo;
     }
 
-    private IndexEntry ReadEntry(long index)
+    private IndexEntry ReadEntry(ulong index)
     {
         Span<byte> raw = stackalloc byte[IndexEntry.Size];
         ReadThroughCache(Header.EntriesOffset + (index * IndexEntry.Size), raw);
         return IndexEntry.Read(raw);
     }
 
-    private void ReadThroughCache(long offset, Span<byte> destination)
+    private void ReadThroughCache(ulong offset, Span<byte> destination)
     {
         while (!destination.IsEmpty)
         {
-            long blockIndex = offset / _blockSize;
-            int inBlock = (int)(offset % _blockSize);
+            ulong blockIndex = offset / (ulong)_blockSize;
+            int inBlock = (int)(offset % (ulong)_blockSize);
 
             using BlockLease lease = _file.Acquire(blockIndex);
             int available = lease.Length - inBlock;
@@ -311,7 +311,7 @@ internal sealed class IndexSegment : IDisposable
             int take = Math.Min(destination.Length, available);
             lease.Span.Slice(inBlock, take).CopyTo(destination);
             destination = destination[take..];
-            offset += take;
+            offset += (ulong)take;
         }
     }
 }

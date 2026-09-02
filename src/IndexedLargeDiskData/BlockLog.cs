@@ -36,8 +36,13 @@ internal sealed class BlockLog : IDisposable
     /// <summary>Name of the file, written in the data root beside the store directories.</summary>
     internal const string FileName = "blockslog.txt";
 
-    /// <summary>Stands in for "nothing logged yet", low enough that no real block number reaches it.</summary>
-    private const long NoBlock = long.MinValue;
+    /// <summary>Stands in for "nothing logged yet", high enough that no real block number reaches it.</summary>
+    /// <remarks>
+    /// It was <c>long.MinValue</c> while block numbers were signed. Unsigned has no value below the
+    /// range, so the sentinel moves to the top of it: zero is a perfectly good block number, and
+    /// using it here would drop the first log line of a chain that starts at block zero.
+    /// </remarks>
+    private const ulong NoBlock = ulong.MaxValue;
 
     /// <summary>ISO 8601 to the millisecond, with the literal Z quoted so it survives as a literal.</summary>
     private const string TimeFormat = "yyyy-MM-ddTHH:mm:ss.fff'Z'";
@@ -53,7 +58,7 @@ internal sealed class BlockLog : IDisposable
     private const int TailBytes = 128;
 
     private readonly StreamWriter _writer;
-    private long _lastBlock;
+    private ulong _lastBlock;
     private bool _disposed;
 
     /// <summary>Opens the log in <paramref name="rootPath"/>, creating it if it is not there yet.</summary>
@@ -74,7 +79,7 @@ internal sealed class BlockLog : IDisposable
     internal string Path { get; }
 
     /// <summary>Gets the last block number logged, or null when nothing has been logged yet.</summary>
-    internal long? LastBlock
+    internal ulong? LastBlock
     {
         get
         {
@@ -94,7 +99,7 @@ internal sealed class BlockLog : IDisposable
     /// also makes the stamp mean what it says: the moment this block number was first written, not
     /// the moment some later transaction in the same block arrived.
     /// </remarks>
-    internal void Log(long block)
+    internal void Log(ulong block)
     {
         // The reason the last value is kept in memory: the common case is a repeat, and it costs a
         // field read and a comparison rather than a seek.
@@ -132,7 +137,7 @@ internal sealed class BlockLog : IDisposable
     /// not parse is treated as no line at all, which costs one duplicate entry and keeps a hand-edited
     /// file from failing an open.
     /// </remarks>
-    private static long ReadLastBlock(string path)
+    private static ulong ReadLastBlock(string path)
     {
         if (!File.Exists(path))
         {
@@ -174,7 +179,7 @@ internal sealed class BlockLog : IDisposable
             number = line.AsSpan(0, space);
         }
 
-        if (long.TryParse(number, NumberStyles.Integer, CultureInfo.InvariantCulture, out long block))
+        if (ulong.TryParse(number, NumberStyles.Integer, CultureInfo.InvariantCulture, out ulong block))
         {
             return block;
         }

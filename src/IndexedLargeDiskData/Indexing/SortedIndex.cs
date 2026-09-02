@@ -35,7 +35,7 @@ internal sealed class SortedIndex : IDisposable
     private MemTable _memTable = new();
     private MemTable? _frozen;
     private int _nextSegmentId;
-    private long _coveredUpTo;
+    private ulong _coveredUpTo;
     private bool _disposed;
 
     internal SortedIndex(string directory, StoreOptions options, BlockCache cache)
@@ -55,7 +55,7 @@ internal sealed class SortedIndex : IDisposable
 
     /// <summary>Gets the exclusive record ordinal that this index is complete up to on disk.</summary>
     /// <remarks>Records at or after this point must be replayed into the memtable after a restart.</remarks>
-    internal long CoveredUpTo => Interlocked.Read(ref _coveredUpTo);
+    internal ulong CoveredUpTo => Interlocked.Read(ref _coveredUpTo);
 
     /// <summary>Gets the number of live segments.</summary>
     internal int SegmentCount => Volatile.Read(ref _segments).Length;
@@ -76,7 +76,7 @@ internal sealed class SortedIndex : IDisposable
     internal bool NeedsFlush => PendingCount >= _options.MemTableEntries;
 
     /// <summary>Buffers an entry mapping <paramref name="key"/> to <paramref name="ordinal"/>.</summary>
-    internal void Add(long key, long ordinal)
+    internal void Add(ulong key, ulong ordinal)
     {
         lock (_memLock)
         {
@@ -86,7 +86,7 @@ internal sealed class SortedIndex : IDisposable
 
     /// <summary>Appends every ordinal recorded under <paramref name="key"/> to <paramref name="results"/>.</summary>
     /// <returns>The number of ordinals appended.</returns>
-    internal int Lookup(long key, List<long> results)
+    internal int Lookup(ulong key, List<ulong> results)
     {
         int found = 0;
 
@@ -118,7 +118,7 @@ internal sealed class SortedIndex : IDisposable
 
     /// <summary>Writes the memtable out as a new level-0 segment.</summary>
     /// <param name="coveredUpTo">The exclusive record ordinal the index is complete up to after this flush.</param>
-    internal void Flush(long coveredUpTo)
+    internal void Flush(ulong coveredUpTo)
     {
         lock (_writeLock)
         {
@@ -142,7 +142,7 @@ internal sealed class SortedIndex : IDisposable
             IndexSegmentWriter.Write(
                 TempPath(id),
                 MemTable.Enumerate(entries, count),
-                count,
+                (ulong)count,
                 level: 0,
                 coveredUpTo,
                 _options);
@@ -157,7 +157,7 @@ internal sealed class SortedIndex : IDisposable
     /// Optional sink called with the entries written since the last call, so a long pass can be
     /// reported against the estimate from <see cref="PlannedMergeEntries"/>.
     /// </param>
-    internal void Maintain(Action<long>? onEntriesWritten = null)
+    internal void Maintain(Action<ulong>? onEntriesWritten = null)
     {
         lock (_writeLock)
         {
@@ -178,10 +178,10 @@ internal sealed class SortedIndex : IDisposable
     /// repeat forever, climbing a level per round and never terminating. Segments at the cap are
     /// simply terminal — nothing can consolidate them further — so the merge has to be declined.
     /// </remarks>
-    private bool MakesProgress(long totalEntries, int segmentCount)
+    private bool MakesProgress(ulong totalEntries, int segmentCount)
     {
-        long outputs = Math.Max(1, (totalEntries + _options.MaxSegmentEntries - 1) / _options.MaxSegmentEntries);
-        return outputs < segmentCount;
+        ulong outputs = Math.Max(1UL, (totalEntries + _options.MaxSegmentEntries - 1) / _options.MaxSegmentEntries);
+        return outputs < (ulong)segmentCount;
     }
 
     /// <summary>
@@ -193,12 +193,12 @@ internal sealed class SortedIndex : IDisposable
     /// chosen across the whole cascade is exactly the work the pass will do — including the extra
     /// rounds a merge triggers by pushing segments up into an already-full level.
     /// </remarks>
-    internal long PlannedMergeEntries()
+    internal ulong PlannedMergeEntries()
     {
-        Dictionary<int, List<long>> levels = [];
+        Dictionary<int, List<ulong>> levels = [];
         foreach (IndexSegment segment in Volatile.Read(ref _segments).OrderBy(s => s.Id))
         {
-            if (!levels.TryGetValue(segment.Level, out List<long>? atLevel))
+            if (!levels.TryGetValue(segment.Level, out List<ulong>? atLevel))
             {
                 levels[segment.Level] = atLevel = [];
             }
@@ -206,20 +206,20 @@ internal sealed class SortedIndex : IDisposable
             atLevel.Add(segment.EntryCount);
         }
 
-        long planned = 0;
+        ulong planned = 0;
         while (true)
         {
             int? target = null;
-            long merged = 0;
+            ulong merged = 0;
             foreach (int level in levels.Keys.Order())
             {
-                List<long> candidate = levels[level];
+                List<ulong> candidate = levels[level];
                 if (candidate.Count < _options.MergeFanout)
                 {
                     continue;
                 }
 
-                long total = 0;
+                ulong total = 0;
                 for (int i = 0; i < _options.MergeFanout; i++)
                 {
                     total += candidate[i];
@@ -240,19 +240,19 @@ internal sealed class SortedIndex : IDisposable
                 return planned;
             }
 
-            List<long> source = levels[target.Value];
+            List<ulong> source = levels[target.Value];
             source.RemoveRange(0, _options.MergeFanout);
             planned += merged;
 
-            if (!levels.TryGetValue(target.Value + 1, out List<long>? destination))
+            if (!levels.TryGetValue(target.Value + 1, out List<ulong>? destination))
             {
                 levels[target.Value + 1] = destination = [];
             }
 
-            long remaining = merged;
+            ulong remaining = merged;
             do
             {
-                long take = Math.Min(remaining, _options.MaxSegmentEntries);
+                ulong take = Math.Min(remaining, _options.MaxSegmentEntries);
                 destination.Add(take);
                 remaining -= take;
             }
@@ -288,7 +288,7 @@ internal sealed class SortedIndex : IDisposable
         _segmentLock.Dispose();
     }
 
-    private bool TryMergeOnce(Action<long>? onEntriesWritten)
+    private bool TryMergeOnce(Action<ulong>? onEntriesWritten)
     {
         IndexSegment[] snapshot = Volatile.Read(ref _segments);
 
@@ -302,7 +302,7 @@ internal sealed class SortedIndex : IDisposable
             }
 
             List<IndexSegment> candidate = atLevel.Take(_options.MergeFanout).ToList();
-            if (!MakesProgress(candidate.Sum(s => s.EntryCount), candidate.Count))
+            if (!MakesProgress(candidate.Aggregate(0UL, (sum, s) => sum + s.EntryCount), candidate.Count))
             {
                 continue;
             }
@@ -316,17 +316,17 @@ internal sealed class SortedIndex : IDisposable
             return false;
         }
 
-        long total = inputs.Sum(s => s.EntryCount);
-        long covered = inputs.Max(s => s.CoveredUpTo);
+        ulong total = inputs.Aggregate(0UL, (sum, s) => sum + s.EntryCount);
+        ulong covered = inputs.Max(s => s.CoveredUpTo);
         int outputLevel = inputs[0].Level + 1;
 
         List<int> outputIds = [];
         using (IEnumerator<IndexEntry> merged = Merge(inputs).GetEnumerator())
         {
-            long remaining = total;
+            ulong remaining = total;
             do
             {
-                long take = Math.Min(remaining, _options.MaxSegmentEntries);
+                ulong take = Math.Min(remaining, _options.MaxSegmentEntries);
                 int id = _nextSegmentId++;
                 outputIds.Add(id);
                 IndexSegmentWriter.Write(
@@ -454,9 +454,9 @@ internal sealed class SortedIndex : IDisposable
         }
     }
 
-    private static IEnumerable<IndexEntry> TakeFrom(IEnumerator<IndexEntry> source, long count)
+    private static IEnumerable<IndexEntry> TakeFrom(IEnumerator<IndexEntry> source, ulong count)
     {
-        for (long i = 0; i < count; i++)
+        for (ulong i = 0; i < count; i++)
         {
             if (!source.MoveNext())
             {

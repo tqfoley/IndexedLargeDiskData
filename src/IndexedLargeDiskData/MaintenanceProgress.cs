@@ -9,7 +9,7 @@ namespace IndexedLargeDiskData;
 /// estimate: appends landing during a long pass can add work that was not in the plan. Use
 /// <see cref="Percentage"/>, which is clamped, rather than dividing the raw fields.
 /// </remarks>
-public readonly record struct MaintenanceProgress(long EntriesWritten, long TotalEntries, string Stage)
+public readonly record struct MaintenanceProgress(ulong EntriesWritten, ulong TotalEntries, string Stage)
 {
     /// <summary>Gets progress through the pass, from 0 to 100.</summary>
     public double Percentage
@@ -36,11 +36,11 @@ public readonly record struct MaintenanceProgress(long EntriesWritten, long Tota
 /// single store merging its own indexes — so the total spans everything that pass will touch rather
 /// than restarting at zero for each index.
 /// </remarks>
-internal sealed class MergeProgressTracker(long totalEntries, Action<MaintenanceProgress> sink)
+internal sealed class MergeProgressTracker(ulong totalEntries, Action<MaintenanceProgress> sink)
 {
-    private long _written;
+    private ulong _written;
 
-    internal void Advance(string stage, long entries)
+    internal void Advance(string stage, ulong entries)
     {
         _written += entries;
         sink(new MaintenanceProgress(_written, totalEntries, stage));

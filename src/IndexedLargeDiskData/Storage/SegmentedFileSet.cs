@@ -29,14 +29,14 @@ internal sealed class SegmentedFileSet : IDisposable
     private readonly Lock _sync = new();
 
     private int _bufferLength;
-    private long _durableLength;
+    private ulong _durableLength;
     private bool _disposed;
 
     internal SegmentedFileSet(
         string directory,
         string prefix,
         string extension,
-        long segmentSize,
+        ulong segmentSize,
         int writeBufferBytes,
         BlockCache cache)
     {
@@ -52,13 +52,13 @@ internal sealed class SegmentedFileSet : IDisposable
     }
 
     /// <summary>Gets the maximum size of a single segment file in bytes.</summary>
-    internal long SegmentSize { get; }
+    internal ulong SegmentSize { get; }
 
     /// <summary>Gets the number of segment files currently open.</summary>
     internal int SegmentCount => _segments.Count;
 
     /// <summary>Gets the logical length in bytes, including data still sitting in the write buffer.</summary>
-    internal long Length => Interlocked.Read(ref _durableLength) + Volatile.Read(ref _bufferLength);
+    internal ulong Length => Interlocked.Read(ref _durableLength) + (ulong)Volatile.Read(ref _bufferLength);
 
     /// <summary>Appends bytes at the end of the stream.</summary>
     internal void Append(ReadOnlySpan<byte> source)
@@ -81,14 +81,14 @@ internal sealed class SegmentedFileSet : IDisposable
     }
 
     /// <summary>Reads <paramref name="destination"/>.Length bytes starting at <paramref name="offset"/>.</summary>
-    internal void Read(long offset, Span<byte> destination)
+    internal void Read(ulong offset, Span<byte> destination)
     {
-        if (offset < 0 || offset + destination.Length > Length)
+        if (offset + (ulong)destination.Length > Length)
         {
             throw new ArgumentOutOfRangeException(nameof(offset), "Read extends past the end of the data.");
         }
 
-        long durable = Interlocked.Read(ref _durableLength);
+        ulong durable = Interlocked.Read(ref _durableLength);
 
         while (!destination.IsEmpty)
         {
@@ -99,7 +99,7 @@ internal sealed class SegmentedFileSet : IDisposable
             }
 
             int copied = ReadFromDisk(offset, destination, durable);
-            offset += copied;
+            offset += (ulong)copied;
             destination = destination[copied..];
         }
     }
@@ -116,7 +116,7 @@ internal sealed class SegmentedFileSet : IDisposable
     /// <summary>
     /// Discards everything past <paramref name="length"/>, used to drop a torn tail during recovery.
     /// </summary>
-    internal void TruncateTo(long length)
+    internal void TruncateTo(ulong length)
     {
         lock (_sync)
         {
@@ -128,7 +128,7 @@ internal sealed class SegmentedFileSet : IDisposable
             _bufferLength = 0;
 
             int keptSegments = (int)(length / SegmentSize);
-            long tail = length % SegmentSize;
+            ulong tail = length % SegmentSize;
             if (tail > 0)
             {
                 keptSegments++;
@@ -145,7 +145,7 @@ internal sealed class SegmentedFileSet : IDisposable
             if (tail > 0 && _segments.Count == keptSegments)
             {
                 CachedFile last = _segments[^1];
-                RandomAccess.SetLength(last.Handle, tail);
+                RandomAccess.SetLength(last.Handle, (long)tail);
                 last.SetLength(tail);
                 last.InvalidateAll();
             }
@@ -178,7 +178,7 @@ internal sealed class SegmentedFileSet : IDisposable
 
     private void OpenExistingSegments()
     {
-        long total = 0;
+        ulong total = 0;
         for (int index = 0; ; index++)
         {
             string path = SegmentPath(index);
@@ -221,11 +221,11 @@ internal sealed class SegmentedFileSet : IDisposable
     private string SegmentPath(int index) =>
         Path.Combine(_directory, $"{_prefix}{index:D6}{_extension}");
 
-    private void ReadFromBuffer(long offset, Span<byte> destination)
+    private void ReadFromBuffer(ulong offset, Span<byte> destination)
     {
         lock (_sync)
         {
-            long durable = _durableLength;
+            ulong durable = _durableLength;
             if (offset < durable)
             {
                 // A flush raced us; retry through the normal path now that the bytes are on disk.
@@ -243,10 +243,10 @@ internal sealed class SegmentedFileSet : IDisposable
         }
     }
 
-    private int ReadFromDisk(long offset, Span<byte> destination, long durable)
+    private int ReadFromDisk(ulong offset, Span<byte> destination, ulong durable)
     {
         int segmentIndex = (int)(offset / SegmentSize);
-        long inSegment = offset % SegmentSize;
+        ulong inSegment = offset % SegmentSize;
 
         CachedFile segment;
         lock (_sync)
@@ -254,8 +254,8 @@ internal sealed class SegmentedFileSet : IDisposable
             segment = _segments[segmentIndex];
         }
 
-        long blockIndex = inSegment / _cache.BlockSize;
-        int inBlock = (int)(inSegment % _cache.BlockSize);
+        ulong blockIndex = inSegment / (ulong)_cache.BlockSize;
+        int inBlock = (int)(inSegment % (ulong)_cache.BlockSize);
 
         using BlockLease lease = segment.Acquire(blockIndex);
         int available = lease.Length - inBlock;
@@ -264,8 +264,8 @@ internal sealed class SegmentedFileSet : IDisposable
             throw new InvalidDataException($"Segment '{segment.Path}' is shorter than expected.");
         }
 
-        long room = Math.Min(available, durable - offset);
-        int take = (int)Math.Min(destination.Length, room);
+        ulong room = Math.Min((ulong)available, durable - offset);
+        int take = (int)Math.Min((ulong)destination.Length, room);
         lease.Span.Slice(inBlock, take).CopyTo(destination);
         return take;
     }
@@ -275,22 +275,22 @@ internal sealed class SegmentedFileSet : IDisposable
         if (_bufferLength > 0)
         {
             ReadOnlySpan<byte> pending = _buffer.AsSpan(0, _bufferLength);
-            long offset = _durableLength;
+            ulong offset = _durableLength;
 
             while (!pending.IsEmpty)
             {
                 int segmentIndex = (int)(offset / SegmentSize);
-                long inSegment = offset % SegmentSize;
+                ulong inSegment = offset % SegmentSize;
                 CachedFile segment = EnsureSegment(segmentIndex);
 
-                int take = (int)Math.Min(pending.Length, SegmentSize - inSegment);
-                RandomAccess.Write(segment.Handle, pending[..take], inSegment);
+                int take = (int)Math.Min((ulong)pending.Length, SegmentSize - inSegment);
+                RandomAccess.Write(segment.Handle, pending[..take], (long)inSegment);
 
-                long newLength = inSegment + take;
+                ulong newLength = inSegment + (ulong)take;
                 segment.SetLength(newLength);
                 InvalidateRange(segment, inSegment, take);
 
-                offset += take;
+                offset += (ulong)take;
                 pending = pending[take..];
             }
 
@@ -307,11 +307,11 @@ internal sealed class SegmentedFileSet : IDisposable
         }
     }
 
-    private void InvalidateRange(CachedFile segment, long offset, int count)
+    private void InvalidateRange(CachedFile segment, ulong offset, int count)
     {
-        long first = offset / _cache.BlockSize;
-        long last = (offset + count - 1) / _cache.BlockSize;
-        for (long block = first; block <= last; block++)
+        ulong first = offset / (ulong)_cache.BlockSize;
+        ulong last = (offset + (ulong)count - 1) / (ulong)_cache.BlockSize;
+        for (ulong block = first; block <= last; block++)
         {
             segment.Invalidate(block);
         }

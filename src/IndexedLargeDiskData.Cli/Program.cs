@@ -14,7 +14,7 @@ namespace IndexedLargeDiskData.Cli;
 /// </remarks>
 internal static class Program
 {
-    private const long DefaultCacheMegabytes = 256;
+    private const ulong DefaultCacheMegabytes = 256;
 
     /// <summary>Characters that synthetic addresses are drawn from.</summary>
     private const string AddressAlphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -38,10 +38,10 @@ internal static class Program
     /// </remarks>
     private static int Roundtrip()
     {
-        long perSession = 2_123_000;
-        long addressesPerSession =  150_000;
-        long distinctKeys =  2_000;
-        long blockNumberCurrent = 0;
+        ulong perSession = 2_123;// _000;
+        ulong addressesPerSession =  150_000;
+        ulong distinctKeys =  2_000;
+        ulong blockNumberCurrent = 0;
 
         // A fresh directory per run: the record counts below are exact, and reopening a directory
         // that already holds data would append to it and fail every one of them.
@@ -53,7 +53,7 @@ internal static class Program
             BlockSize = 4096,
             CacheBudgetBytes = 1600L * 1024 * 1024, // 1.6 gigs
             SegmentSize = 500L * 1024 * 1024, // 500 megs
-            MemTableEntries = 1 << 16,
+            MemTableEntries = 1 << 19, //  effects idx file filesize 
             MaxSegmentEntries = 1 << 20,
             MergeFanout = 4,
             FenceStride = 4096,
@@ -66,8 +66,8 @@ internal static class Program
                           $"segment={options.SegmentSize / (1024 * 1024):N0} MiB, " +
                           $"cache={options.CacheBudgetBytes / (1024 * 1024):N0} MiB");
 
-        Dictionary<long, List<TripleRecord>> byV0 = [];
-        Dictionary<long, List<TripleRecord>> byV1 = [];
+        Dictionary<ulong, List<QuadrupleRecord>> byV0 = [];
+        Dictionary<ulong, List<QuadrupleRecord>> byV1 = [];
         ulong seed = 20250825;
         int failures = 0;
         Stopwatch clock = Stopwatch.StartNew();
@@ -78,12 +78,12 @@ internal static class Program
             AppendTransactions(db, byV0, byV1, ref seed, 0, perSession, distinctKeys);
             AppendAddresses(db, 0, addressesPerSession);
 
-            long v0 = 1111111111111;
-            long v3 = 3333333333333;
-            for (long h = 0; h < perSession * 3L; h++)
+            ulong v0 = 1111111111111;
+            ulong v3 = 3333333333333;
+            for (ulong h = 0; h < perSession * 3UL; h++)
             {
-                TripleRecord[] batch = new TripleRecord[1];
-                batch[0] = new TripleRecord(v0++, v0++, v3);
+                QuadrupleRecord[] batch = new QuadrupleRecord[1];
+                batch[0] = new QuadrupleRecord(v0++, v0++, v3, h, h * 3);
 
                 db.Transactions.AppendRange(batch.AsSpan(0, 1));
             }
@@ -114,20 +114,23 @@ internal static class Program
                 //failures++;
             }
 
-                long v0 = 1111111111111;
-                long v1 = 2222222222222;
-                long v3 = 3333333333333;
-            TripleRecord[] batch = new TripleRecord[1];
-            batch[0] = new TripleRecord(v0, v1, v3);
+                ulong v0 = 1111111111111;
+                ulong v1 = 2222222222222;
+                ulong v3 = 3333333333333;
+            QuadrupleRecord[] batch = new QuadrupleRecord[1];
+            batch[0] = new QuadrupleRecord(v0, v1, v3, 0, 0);
 
             db.Transactions.AppendRange(batch.AsSpan(0, 1));
 
             for (int i = 0; i < 5555; i++)
             {
-                long v20 = 1411111111111;
-                long v21 = 2422222222222;
+                ulong v20 = 1411111111111;
+                ulong v21 = 2422222222222;
+                ulong v22 = 1511111111111;
+                ulong v23 = 2522222222222;
+
                 blockNumberCurrent++;
-                db.AddSingleTransaction(v20, v21, blockNumberCurrent / 64, 1 << 42);
+                db.AddSingleTransaction(v20, v21, v22, v23, 262144UL + 1_048_576UL, (8_001UL * 100_000_000UL));//
             }
 
             AddressRecord[] batch3 = new AddressRecord[1];
@@ -152,7 +155,7 @@ internal static class Program
                           $"  [{clock.Elapsed.TotalSeconds:F2}s]");
 
         /*public void AddSingleAddress(long v0, string address)
-TripleRecord> GetTransactionFromV0(long v0)
+QuadrupleRecord> GetTransactionFromV0(long v0)
 t<string> GetAddressFromLong(long v0)
 GetAddressString(string address)
         */
@@ -161,18 +164,45 @@ GetAddressString(string address)
         clock.Restart();
         using (DataRoot db = new(dataPath, options))
         {
-            long v0 = 1111111111111;
-            long v1 = 2222222222222;
-            long v3 = 3333333333333;
+            ulong v0 = 1111111111111;
+            ulong v1 = 2222222222222;
+            ulong v3 = 3333333333333;
+            ulong v4 = 3333333333333;
+            ulong v5 = 3333333333333;
 
-            long v20 = 1411111111111;
-            long v21 = 2422222222222;
+            ulong v20 = 1411111111111;
+            ulong v21 = 2422222222222;
+            ulong v22 = 1511111111111;
+            ulong v23 = 2522222222222;
 
             var t2 = db.GetTransactionFromV0(v20);
-            var t3 = db.GetTransactionFromV1(v21);
 
-            long byFirst = db.Transactions.CountByV0(v0);
-            long bySecond = db.Transactions.CountByV1(v1);
+            var t22 = t2.Last();
+
+            ulong block2 = t22.V4 >> DataRoot.BlockShift;
+
+            ulong block = t22.V4 / (1UL << DataRoot.BlockShift);
+            ulong amount = t22.V4 - (block << DataRoot.BlockShift);
+
+            string g = Hex.ToHexString(block);
+
+            string h = Hex.ToHexString(amount);
+            Console.WriteLine(g);
+            Console.WriteLine("amount :" + amount);
+            Console.WriteLine("amount :" + h);
+
+            if (Hex.ToHexString(block) != Hex.ToHexString(block2))
+            {
+
+            }
+            
+
+            var t3 = db.GetTransactionToV1(v21);
+            var t4 = db.GetTransactionFromV0(v22);
+            var t5 = db.GetTransactionToV1(v23);
+
+            ulong byFirst = db.Transactions.CountByV0(v0);
+            ulong bySecond = db.Transactions.CountByV1(v1);
             Console.WriteLine($"           v0={byFirst:N0}  v1={bySecond:N0}");
 
             var result1 = db.Transactions.FindByV0(v0);
@@ -182,6 +212,12 @@ GetAddressString(string address)
             Console.WriteLine(result1.Count);
             Console.WriteLine(result2.Count);
             Console.WriteLine(result3.Count);
+
+            // The third and fourth fields carry the block number and the amount, and both are
+            // indexed now, so either one is a lookup rather than a scan.
+            var inBlock = db.GetTransactionsInBlock(1);
+            var byAmount = db.GetTransactionsByAmount(1UL << 42);
+            Console.WriteLine($"           block 1 -> {inBlock.Count:N0}  amount -> {byAmount.Count:N0}");
 
             var resultAddress1 = db.Addresses.FindByAddress("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNaxxxxxxx");
 
@@ -216,7 +252,7 @@ GetAddressString(string address)
             long spanning = 0;
             for (long key = 0; key < distinctKeys; key++)
             {
-                IReadOnlyList<TripleRecord> matches = db.Transactions.FindByV0(key);
+                IReadOnlyList<QuadrupleRecord> matches = db.Transactions.FindByV0(key);
                 failures += CheckSequence($"v0={key}", byV0.GetValueOrDefault(key, []), matches);
                 failures += CheckSequence($"v1={key}", byV1.GetValueOrDefault(key, []), db.Transactions.FindByV1(key));
 
@@ -266,64 +302,66 @@ GetAddressString(string address)
     /// answered from the index, while fetching the records would mean one random read each. On a key
     /// with a thousand matches that is a thousand reads paid for a number.
     /// </remarks>
-    private static void ReportTransactionCounts(DataRoot db, params long[] probes)
+    private static void ReportTransactionCounts(DataRoot db, params ulong[] probes)
     {
         Console.WriteLine($"counts     {db.Transactions.Count:N0} transactions in the store");
 
-        foreach (long probe in probes)
+        foreach (ulong probe in probes)
         {
-            long byFirst = db.Transactions.CountByV0(probe);
-            long bySecond = db.Transactions.CountByV1(probe);
+            ulong byFirst = db.Transactions.CountByV0(probe);
+            ulong bySecond = db.Transactions.CountByV1(probe);
             Console.WriteLine($"           {probe,15:N0}  v0={byFirst:N0}  v1={bySecond:N0}");
         }
     }
 
     private static void AppendTransactions(
         DataRoot db,
-        Dictionary<long, List<TripleRecord>> byV0,
-        Dictionary<long, List<TripleRecord>> byV1,
+        Dictionary<ulong, List<QuadrupleRecord>> byV0,
+        Dictionary<ulong, List<QuadrupleRecord>> byV1,
         ref ulong seed,
-        long firstOrdinal,
-        long count,
-        long distinctKeys)
+        ulong firstOrdinal,
+        ulong count,
+        ulong distinctKeys)
     {
-        TripleRecord[] batch = new TripleRecord[8192];
-        long written = 0;
+        QuadrupleRecord[] batch = new QuadrupleRecord[8192];
+        ulong written = 0;
 
         while (written < count)
         {
-            int take = (int)Math.Min(batch.Length, count - written);
+            int take = (int)Math.Min((ulong)batch.Length, count - written);
             for (int i = 0; i < take; i++)
             {
-                long v0 = (long)(Next(ref seed) % (ulong)distinctKeys);
-                long v1 = (long)(Next(ref seed) % (ulong)distinctKeys);
-                batch[i] = new TripleRecord(v0, v1, firstOrdinal + written + i);
+                ulong v0 = (ulong)(Next(ref seed) % (ulong)distinctKeys);
+                ulong v1 = (ulong)(Next(ref seed) % (ulong)distinctKeys);
+                ulong v3 = (ulong)(Next(ref seed) % (ulong)distinctKeys);
+                ulong v4 = Next(ref seed);
+                batch[i] = new QuadrupleRecord(v0, v1, firstOrdinal + written + (ulong)i, v3, v4);
 
                 Track(byV0, v0, batch[i]);
                 Track(byV1, v1, batch[i]);
             }
 
             db.Transactions.AppendRange(batch.AsSpan(0, take));
-            written += take;
+            written += (ulong)take;
         }
     }
 
-    private static void AppendAddresses(DataRoot db, long firstId, long count)
+    private static void AppendAddresses(DataRoot db, ulong firstId, ulong count)
     {
         AddressRecord[] batch = new AddressRecord[8192];
-        long written = 0;
+        ulong written = 0;
 
         while (written < count)
         {
-            int take = (int)Math.Min(batch.Length, count - written);
+            int take = (int)Math.Min((ulong)batch.Length, count - written);
             for (int i = 0; i < take; i++)
             {
-                long id = firstId + written + i;
+                ulong id = firstId + written + (ulong)i;
                 batch[i] = new AddressRecord(id, SyntheticAddress(id));
             }
 
             db.Addresses.AppendRange(batch.AsSpan(0, take));
-            written += take;
+            written += (ulong)take;
         }
     }
 
@@ -338,7 +376,7 @@ GetAddressString(string address)
         bucket.Add(value);
     }
 
-    private static int Check(string label, long expected, long actual)
+    private static int Check(string label, ulong expected, ulong actual)
     {
         if (expected == actual)
         {
@@ -349,7 +387,10 @@ GetAddressString(string address)
         return 1;
     }
 
-    private static int CheckSequence(string label, List<TripleRecord> expected, IReadOnlyList<TripleRecord> actual)
+    private static int CheckSequence(
+        string label,
+        List<QuadrupleRecord> expected,
+        IReadOnlyList<QuadrupleRecord> actual)
     {
         if (expected.Count == actual.Count && expected.SequenceEqual(actual))
         {
@@ -364,8 +405,10 @@ GetAddressString(string address)
     {
         "ingest-transactions" => IngestTransactions(args),
         "ingest-addresses" => IngestAddresses(args),
-        "find-v0" => FindTransactions(args, byV1: false),
-        "find-v1" => FindTransactions(args, byV1: true),
+        "find-v0" => FindTransactions(args, field: 0),
+        "find-v1" => FindTransactions(args, field: 1),
+        "find-v2" => FindTransactions(args, field: 2),
+        "find-v3" => FindTransactions(args, field: 3),
         "find-id" => FindById(args),
         "find-address" => FindByAddress(args),
         "maintain" => Maintain(args),
@@ -383,29 +426,31 @@ GetAddressString(string address)
 
     private static int IngestTransactions(Arguments args)
     {
-        long count = args.RequireLong("count");
-        long distinctKeys = args.OptionalLong("keys") ?? Math.Max(count / 8, 1);
+        ulong count = args.RequireLong("count");
+        ulong distinctKeys = args.OptionalLong("keys") ?? Math.Max(count / 8, 1UL);
 
         using DataRoot root = Open(args);
         Stopwatch clock = Stopwatch.StartNew();
 
         ulong seed = (ulong)root.Transactions.Count + 1;
-        TripleRecord[] batch = new TripleRecord[4096];
+        QuadrupleRecord[] batch = new QuadrupleRecord[4096];
 
-        long written = 0;
+        ulong written = 0;
         while (written < count)
         {
-            int take = (int)Math.Min(batch.Length, count - written);
+            int take = (int)Math.Min((ulong)batch.Length, count - written);
             for (int i = 0; i < take; i++)
             {
-                long v0 = (long)(Next(ref seed) % (ulong)distinctKeys);
-                long v1 = (long)(Next(ref seed) % (ulong)distinctKeys);
-                long v2 = (long)(Next(ref seed) & long.MaxValue);
-                batch[i] = new TripleRecord(v0, v1, v2);
+                ulong v0 = (ulong)(Next(ref seed) % (ulong)distinctKeys);
+                ulong v1 = (ulong)(Next(ref seed) % (ulong)distinctKeys);
+                ulong v2 = (ulong)(Next(ref seed) % (ulong)distinctKeys);
+                ulong v3 = Next(ref seed);
+                ulong v4 = Next(ref seed);
+                batch[i] = new QuadrupleRecord(v0, v1, v2, v3, v4);
             }
 
             root.Transactions.AppendRange(batch.AsSpan(0, take));
-            written += take;
+            written += (ulong)take;
         }
 
         root.Flush();
@@ -419,26 +464,26 @@ GetAddressString(string address)
 
     private static int IngestAddresses(Arguments args)
     {
-        long count = args.RequireLong("count");
+        ulong count = args.RequireLong("count");
 
         using DataRoot root = Open(args);
         Stopwatch clock = Stopwatch.StartNew();
 
-        long start = root.Addresses.Count;
+        ulong start = root.Addresses.Count;
         AddressRecord[] batch = new AddressRecord[4096];
 
-        long written = 0;
+        ulong written = 0;
         while (written < count)
         {
-            int take = (int)Math.Min(batch.Length, count - written);
+            int take = (int)Math.Min((ulong)batch.Length, count - written);
             for (int i = 0; i < take; i++)
             {
-                long id = start + written + i;
+                ulong id = start + written + (ulong)i;
                 batch[i] = new AddressRecord(id, SyntheticAddress(id));
             }
 
             root.Addresses.AppendRange(batch.AsSpan(0, take));
-            written += take;
+            written += (ulong)take;
         }
 
         root.Flush();
@@ -450,27 +495,38 @@ GetAddressString(string address)
         return 0;
     }
 
-    private static int FindTransactions(Arguments args, bool byV1)
+    /// <summary>Looks a key up in one of the four transaction indexes.</summary>
+    /// <param name="args">Command line arguments; <c>--key</c> is required.</param>
+    /// <param name="field">Which value to search on, zero through three.</param>
+    private static int FindTransactions(Arguments args, int field)
     {
-        long key = args.RequireLong("key");
+        ulong key = args.RequireLong("key");
         using DataRoot root = Open(args);
 
         Stopwatch clock = Stopwatch.StartNew();
-        IReadOnlyList<TripleRecord> matches;
-        if (byV1)
+        IReadOnlyList<QuadrupleRecord> matches;
+        if (field == 0)
+        {
+            matches = root.Transactions.FindByV0(key);
+        }
+        else if (field == 1)
         {
             matches = root.Transactions.FindByV1(key);
         }
+        else if (field == 2)
+        {
+            matches = root.Transactions.FindByV2(key);
+        }
         else
         {
-            matches = root.Transactions.FindByV0(key);
+            matches = root.Transactions.FindByV3(key);
         }
         clock.Stop();
 
         Console.WriteLine($"{matches.Count:N0} match(es) in {clock.Elapsed.TotalMilliseconds:F2}ms");
-        foreach (TripleRecord record in matches.Take(20))
+        foreach (QuadrupleRecord record in matches.Take(20))
         {
-            Console.WriteLine($"  {record.V0}  {record.V1}  {record.V2}");
+            Console.WriteLine($"  {record.V0}  {record.V1}  {record.V2}  {record.V3}  {record.V4}");
         }
 
         if (matches.Count > 20)
@@ -484,7 +540,7 @@ GetAddressString(string address)
 
     private static int FindById(Arguments args)
     {
-        long id = args.RequireLong("id");
+        ulong id = args.RequireLong("id");
         using DataRoot root = Open(args);
 
         if (root.Addresses.TryGetAddress(id, out string? address))
@@ -503,7 +559,7 @@ GetAddressString(string address)
         string address = args.Require("address");
         using DataRoot root = Open(args);
 
-        if (root.Addresses.TryGetId(address, out long id))
+        if (root.Addresses.TryGetId(address, out ulong id))
         {
             Console.WriteLine(id.ToString());
             PrintCache(root);
@@ -532,7 +588,7 @@ GetAddressString(string address)
         Console.WriteLine($"cache blocks: {root.Cache.Capacity:N0} " +
                           $"({(double)root.Cache.Capacity * root.Options.BlockSize / (1024 * 1024):N0} MiB)");
         Console.WriteLine($"transactions: {root.Transactions.Count:N0} records " +
-                          $"({root.Transactions.Count * TripleRecord.RecordSize / 1024.0 / 1024:N1} MiB)");
+                          $"({root.Transactions.Count * QuadrupleRecord.RecordSize / 1024.0 / 1024:N1} MiB)");
         Console.WriteLine($"addresses:    {root.Addresses.Count:N0} records " +
                           $"({root.Addresses.Count * AddressRecord.RecordSize / 1024.0 / 1024:N1} MiB)");
         PrintIndexes(root);
@@ -573,8 +629,8 @@ GetAddressString(string address)
     /// </remarks>
     private static StoreOptions OptionsFor(Arguments args) => new()
     {
-        CacheBudgetBytes = (args.OptionalLong("cache-mb") ?? DefaultCacheMegabytes) * 1024 * 1024,
-        MemTableEntries = (int)(args.OptionalLong("memtable") ?? (1 << 20)),
+        CacheBudgetBytes = (args.OptionalLong("cache-mb") ?? DefaultCacheMegabytes) * 1024UL * 1024UL,
+        MemTableEntries = (int)(args.OptionalLong("memtable") ?? (1UL << 20)),
     };
 
     /// <summary>Derives a deterministic 75-character address from an identifier.</summary>
@@ -583,7 +639,7 @@ GetAddressString(string address)
     /// opened with the same fixed tag would share one index key and turn every reverse lookup into a
     /// scan of the whole synthetic set.
     /// </remarks>
-    private static string SyntheticAddress(long id)
+    private static string SyntheticAddress(ulong id)
     {
         Span<char> text = stackalloc char[AddressRecord.AddressLength];
         ulong state = unchecked((ulong)id) + 0x1234_5678_9ABC_DEF0UL;
@@ -610,10 +666,13 @@ GetAddressString(string address)
             usage: indexedlargediskdata <command> --root <dir> [options]
 
             commands:
-              ingest-transactions  --count <n> [--keys <n>]   append synthetic three-value records
+              ingest-transactions  --count <n> [--keys <n>]   append synthetic five-value records
               ingest-addresses     --count <n>                append synthetic id/address pairs
               find-v0              --key <n>                  records whose first value matches
               find-v1              --key <n>                  records whose second value matches
+              find-v2              --key <n>                  records whose third value matches
+              find-v3              --key <n>                  records whose fourth value matches
+                                                             (the fifth value is not indexed)
               find-id              --id <n>                   address stored against an id
               find-address         --address <75 chars>       id stored against an address
               maintain                                        merge index tiers
@@ -675,13 +734,13 @@ GetAddressString(string address)
             }
         }
 
-        internal long RequireLong(string name) => long.Parse(Require(name));
+        internal ulong RequireLong(string name) => ulong.Parse(Require(name));
 
-        internal long? OptionalLong(string name)
+        internal ulong? OptionalLong(string name)
         {
             if (_values.TryGetValue(name, out string? value))
             {
-                return long.Parse(value);
+                return ulong.Parse(value);
             }
             else
             {

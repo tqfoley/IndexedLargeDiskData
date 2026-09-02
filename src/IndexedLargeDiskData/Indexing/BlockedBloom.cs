@@ -26,20 +26,20 @@ internal static class BlockedBloom
     private const int HashCount = 7;
 
     /// <summary>Computes how many blocks a filter needs for the given key count and bit budget.</summary>
-    internal static int BlockCount(long keyCount, int bitsPerKey)
+    internal static int BlockCount(ulong keyCount, int bitsPerKey)
     {
-        if (keyCount <= 0 || bitsPerKey <= 0)
+        if (keyCount == 0 || bitsPerKey <= 0)
         {
             return 0;
         }
 
-        long bits = keyCount * bitsPerKey;
-        long blocks = (bits + BitsPerBlock - 1) / BitsPerBlock;
-        return (int)Math.Clamp(blocks, 1, int.MaxValue);
+        ulong bits = keyCount * (ulong)bitsPerKey;
+        ulong blocks = (bits + BitsPerBlock - 1) / BitsPerBlock;
+        return (int)Math.Clamp(blocks, 1UL, int.MaxValue);
     }
 
     /// <summary>Sets the bits for <paramref name="key"/> in a filter held as a contiguous byte array.</summary>
-    internal static void Add(Span<byte> filter, int blockCount, long key)
+    internal static void Add(Span<byte> filter, int blockCount, ulong key)
     {
         if (blockCount == 0)
         {
@@ -58,7 +58,7 @@ internal static class BlockedBloom
 
     /// <summary>Tests one filter block for <paramref name="key"/>.</summary>
     /// <returns>False when the key is definitely absent; true when it may be present.</returns>
-    internal static bool MayContain(ReadOnlySpan<byte> block, long key, int blockCount)
+    internal static bool MayContain(ReadOnlySpan<byte> block, ulong key, int blockCount)
     {
         (_, uint a, uint b) = Locate(key, blockCount);
 
@@ -75,9 +75,9 @@ internal static class BlockedBloom
     }
 
     /// <summary>Gets the index of the block that holds <paramref name="key"/>.</summary>
-    internal static int BlockOf(long key, int blockCount) => Locate(key, blockCount).Block;
+    internal static int BlockOf(ulong key, int blockCount) => Locate(key, blockCount).Block;
 
-    private static (int Block, uint A, uint B) Locate(long key, int blockCount)
+    private static (int Block, uint A, uint B) Locate(ulong key, int blockCount)
     {
         ulong h = Mix(unchecked((ulong)key));
 
@@ -98,5 +98,5 @@ internal static class BlockedBloom
     }
 
     /// <summary>Reads a filter block's byte offset within the filter section.</summary>
-    internal static long OffsetOf(int block) => (long)block * BlockBytes;
+    internal static ulong OffsetOf(int block) => (ulong)block * BlockBytes;
 }

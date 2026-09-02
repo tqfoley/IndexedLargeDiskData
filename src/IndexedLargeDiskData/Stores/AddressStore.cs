@@ -25,14 +25,14 @@ public sealed class AddressStore : IndexedStore<AddressRecord>
     }
 
     /// <summary>Appends an identifier and a 75-character address, returning its ordinal.</summary>
-    public long Append(long id, string address) => Append(new AddressRecord(id, address));
+    public ulong Append(ulong id, string address) => Append(new AddressRecord(id, address));
 
     /// <summary>Reads every record carrying <paramref name="id"/>.</summary>
-    public IReadOnlyList<AddressRecord> FindById(long id) => FindRecords(IndexId, id);
+    public IReadOnlyList<AddressRecord> FindById(ulong id) => FindRecords(IndexId, id);
 
     /// <summary>Gets the address stored against <paramref name="id"/>.</summary>
     /// <returns>True when a record exists. When several do, the earliest is returned.</returns>
-    public bool TryGetAddress(long id, [MaybeNullWhen(false)] out string address)
+    public bool TryGetAddress(ulong id, [MaybeNullWhen(false)] out string address)
     {
         IReadOnlyList<AddressRecord> matches = FindById(id);
         if (matches.Count == 0)
@@ -51,7 +51,7 @@ public sealed class AddressStore : IndexedStore<AddressRecord>
         AddressRecord.Validate(address);
 
         List<AddressRecord> confirmed = [];
-        foreach (long ordinal in FindOrdinals(IndexAddress, AddressRecord.PrefixOf(address)))
+        foreach (ulong ordinal in FindOrdinals(IndexAddress, AddressRecord.PrefixOf(address)))
         {
             AddressRecord candidate = Read(ordinal);
             if (string.Equals(candidate.Address, address, StringComparison.Ordinal))
@@ -65,7 +65,7 @@ public sealed class AddressStore : IndexedStore<AddressRecord>
 
     /// <summary>Gets the identifier stored against <paramref name="address"/>.</summary>
     /// <returns>True when a record exists. When several do, the earliest is returned.</returns>
-    public bool TryGetId(string address, out long id)
+    public bool TryGetId(string address, out ulong id)
     {
         IReadOnlyList<AddressRecord> matches = FindByAddress(address);
         if (matches.Count == 0)
@@ -79,7 +79,7 @@ public sealed class AddressStore : IndexedStore<AddressRecord>
     }
 
     /// <inheritdoc />
-    protected override long GetKey(int index, in AddressRecord record) => index switch
+    protected override ulong GetKey(int index, in AddressRecord record) => index switch
     {
         IndexId => record.Id,
         IndexAddress => record.AddressPrefix,

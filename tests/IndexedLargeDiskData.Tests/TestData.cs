@@ -40,13 +40,13 @@ public static class TestData
     /// Options sized so that a few thousand records exercise segment rollover, cache eviction,
     /// memtable flushes and tier merges, all of which would otherwise need terabytes to reach.
     /// </summary>
-    public static StoreOptions SmallOptions(int memTableEntries = 1024, long? maxSegmentEntries = null) => new()
+    public static StoreOptions SmallOptions(int memTableEntries = 1024, ulong? maxSegmentEntries = null) => new()
     {
         BlockSize = 512,
         CacheBudgetBytes = 512 * 64,
         SegmentSize = 4096,
         MemTableEntries = memTableEntries,
-        MaxSegmentEntries = maxSegmentEntries ?? (memTableEntries * 8L),
+        MaxSegmentEntries = maxSegmentEntries ?? ((ulong)memTableEntries * 8UL),
         MergeFanout = 3,
         FenceStride = 16,
         BloomBitsPerKey = 10,
@@ -75,12 +75,12 @@ public static class TestData
         WriteBufferBytes = 1 << 20,
     };
 
-    /// <summary>Builds a deterministic 75-character address from a seed.</summary>
+    /// <summary>Builds a deterministic 55-character address from a seed.</summary>
     /// <remarks>
     /// Every character varies with the seed, the leading ones included, so distinct seeds land on
     /// distinct index keys and a reverse lookup confirms one candidate rather than thousands.
     /// </remarks>
-    public static string Address(long seed)
+    public static string Address(ulong seed)
     {
         Span<char> text = stackalloc char[AddressRecord.AddressLength];
         ulong state = unchecked((ulong)seed) + 0x1234_5678_9ABC_DEF0UL;

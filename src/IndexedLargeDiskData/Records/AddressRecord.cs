@@ -31,7 +31,7 @@ public readonly record struct AddressRecord : IFixedRecord<AddressRecord>
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="address"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="address"/> is the wrong length or not ASCII.</exception>
-    public AddressRecord(long id, string address)
+    public AddressRecord(ulong id, string address)
     {
         Validate(address, nameof(address));
         Id = id;
@@ -39,13 +39,13 @@ public readonly record struct AddressRecord : IFixedRecord<AddressRecord>
     }
 
     /// <summary>Gets the identifier. Indexed.</summary>
-    public long Id { get; }
+    public ulong Id { get; }
 
     /// <summary>Gets the address, exactly <see cref="AddressLength"/> ASCII characters.</summary>
     public string Address { get; }
 
     /// <summary>Gets the index key derived from <see cref="Address"/>.</summary>
-    public long AddressPrefix => PrefixOf(Address);
+    public ulong AddressPrefix => PrefixOf(Address);
 
     /// <inheritdoc />
     public static int Size => RecordSize;
@@ -73,7 +73,7 @@ public readonly record struct AddressRecord : IFixedRecord<AddressRecord>
     /// tests that force a collision deliberately.
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="address"/> is shorter than the prefix.</exception>
-    public static long PrefixOf(ReadOnlySpan<char> address)
+    public static ulong PrefixOf(ReadOnlySpan<char> address)
     {
         if (address.Length < PrefixLength)
         {
@@ -88,7 +88,7 @@ public readonly record struct AddressRecord : IFixedRecord<AddressRecord>
             key |= (ulong)(byte)address[i] << (i * 8);
         }
 
-        return unchecked((long)key);
+        return unchecked((ulong)key);
     }
 
     /// <summary>Throws unless <paramref name="address"/> can be stored as an address.</summary>
@@ -99,7 +99,7 @@ public readonly record struct AddressRecord : IFixedRecord<AddressRecord>
     /// <inheritdoc />
     public static void Write(Span<byte> destination, in AddressRecord value)
     {
-        BinaryPrimitives.WriteInt64LittleEndian(destination, value.Id);
+        BinaryPrimitives.WriteUInt64LittleEndian(destination, value.Id);
 
         string address = value.Address;
         ArgumentNullException.ThrowIfNull(address, nameof(value));
@@ -126,7 +126,7 @@ public readonly record struct AddressRecord : IFixedRecord<AddressRecord>
     /// so that path only opens on a corrupt record.
     /// </remarks>
     public static AddressRecord Read(ReadOnlySpan<byte> source) => new(
-        BinaryPrimitives.ReadInt64LittleEndian(source),
+        BinaryPrimitives.ReadUInt64LittleEndian(source),
         Encoding.Latin1.GetString(source.Slice(8, AddressLength)));
 
     private static void Validate(string? address, string parameterName)

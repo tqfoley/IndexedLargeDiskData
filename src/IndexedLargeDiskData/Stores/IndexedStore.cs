@@ -27,7 +27,7 @@ public abstract class IndexedStore<T> : IDisposable
     private readonly string _directory;
     private readonly SortedIndex[] _indexes;
     private readonly Lock _appendLock = new();
-    private long _committedCount;
+    private ulong _committedCount;
     private bool _disposed;
 
     /// <summary>Opens or creates a store under <paramref name="directory"/>.</summary>
@@ -52,10 +52,10 @@ public abstract class IndexedStore<T> : IDisposable
     }
 
     /// <summary>Gets the number of records in the store.</summary>
-    public long Count => Records.Count;
+    public ulong Count => Records.Count;
 
     /// <summary>Gets the number of records that have been forced to disk and committed.</summary>
-    public long CommittedCount => Interlocked.Read(ref _committedCount);
+    public ulong CommittedCount => Interlocked.Read(ref _committedCount);
 
     /// <summary>Gets the options this store was opened with.</summary>
     protected StoreOptions Options { get; }
@@ -66,12 +66,12 @@ public abstract class IndexedStore<T> : IDisposable
     /// <summary>Extracts the key that index <paramref name="index"/> stores for <paramref name="record"/>.</summary>
     /// <param name="index">The zero-based index number, matching the constructor's name order.</param>
     /// <param name="record">The record being indexed.</param>
-    protected abstract long GetKey(int index, in T record);
+    protected abstract ulong GetKey(int index, in T record);
 
     /// <summary>Appends a record and returns its ordinal.</summary>
-    public long Append(in T record)
+    public ulong Append(in T record)
     {
-        long ordinal;
+        ulong ordinal;
         lock (_appendLock)
         {
             ordinal = Records.Append(record);
@@ -86,14 +86,14 @@ public abstract class IndexedStore<T> : IDisposable
     }
 
     /// <summary>Appends a batch of records and returns the ordinal of the first.</summary>
-    public long AppendRange(ReadOnlySpan<T> records)
+    public ulong AppendRange(ReadOnlySpan<T> records)
     {
         if (records.IsEmpty)
         {
             return Count;
         }
 
-        long first;
+        ulong first;
         lock (_appendLock)
         {
             first = Records.AppendRange(records);
@@ -101,7 +101,7 @@ public abstract class IndexedStore<T> : IDisposable
             {
                 for (int i = 0; i < _indexes.Length; i++)
                 {
-                    _indexes[i].Add(GetKey(i, records[r]), first + r);
+                    _indexes[i].Add(GetKey(i, records[r]), first + (ulong)r);
                 }
             }
         }
@@ -111,12 +111,12 @@ public abstract class IndexedStore<T> : IDisposable
     }
 
     /// <summary>Reads the record at <paramref name="ordinal"/>.</summary>
-    public T Read(long ordinal) => Records.Read(ordinal);
+    public T Read(ulong ordinal) => Records.Read(ordinal);
 
     /// <summary>Forces records to disk, commits the count, then flushes every index.</summary>
     public void Flush()
     {
-        long committed = CommitRecords();
+        ulong committed = CommitRecords();
         foreach (SortedIndex index in _indexes)
         {
             index.Flush(committed);
@@ -128,7 +128,8 @@ public abstract class IndexedStore<T> : IDisposable
 
     /// <summary>Estimates the index entries a <see cref="Maintain()"/> pass would write.</summary>
     /// <remarks>Zero means every level is already under the fanout and a pass would do nothing.</remarks>
-    public long PlannedMaintenanceEntries => _indexes.Sum(i => i.PlannedMergeEntries());
+    public ulong PlannedMaintenanceEntries =>
+        _indexes.Aggregate(0UL, (total, i) => total + i.PlannedMergeEntries());
 
     /// <summary>Runs index tier merges until every level is back under the fanout.</summary>
     /// <remarks>
@@ -144,7 +145,7 @@ public abstract class IndexedStore<T> : IDisposable
             return;
         }
 
-        long total = PlannedMaintenanceEntries;
+        ulong total = PlannedMaintenanceEntries;
         if (total == 0)
         {
             ConsoleMaintenanceReporter.ReportNothingToDo();
@@ -189,9 +190,9 @@ public abstract class IndexedStore<T> : IDisposable
 
     /// <summary>Collects the ordinals recorded under <paramref name="key"/> in index <paramref name="index"/>.</summary>
     /// <returns>Ordinals in ascending order, which is also the cheapest order to read them back in.</returns>
-    protected List<long> FindOrdinals(int index, long key)
+    protected List<ulong> FindOrdinals(int index, ulong key)
     {
-        List<long> results = [];
+        List<ulong> results = [];
         _indexes[index].Lookup(key, results);
         results.Sort();
         return results;
@@ -203,18 +204,18 @@ public abstract class IndexedStore<T> : IDisposable
     /// of the data files, which at a thousand matches is a thousand random reads; a count only needs
     /// the ordinals, so it never touches the records at all.
     /// </remarks>
-    protected long CountMatching(int index, long key)
+    protected ulong CountMatching(int index, ulong key)
     {
-        List<long> ordinals = [];
-        return _indexes[index].Lookup(key, ordinals);
+        List<ulong> ordinals = [];
+        return (ulong)_indexes[index].Lookup(key, ordinals);
     }
 
     /// <summary>Reads every record whose index <paramref name="index"/> key equals <paramref name="key"/>.</summary>
-    protected List<T> FindRecords(int index, long key)
+    protected List<T> FindRecords(int index, ulong key)
     {
-        List<long> ordinals = FindOrdinals(index, key);
+        List<ulong> ordinals = FindOrdinals(index, key);
         List<T> records = new(ordinals.Count);
-        foreach (long ordinal in ordinals)
+        foreach (ulong ordinal in ordinals)
         {
             records.Add(Records.Read(ordinal));
         }
@@ -256,12 +257,12 @@ public abstract class IndexedStore<T> : IDisposable
     }
 
     /// <summary>Forces buffered records to disk and records the new committed count.</summary>
-    private long CommitRecords()
+    private ulong CommitRecords()
     {
         lock (_appendLock)
         {
             Records.Flush(fsync: true);
-            long count = Records.Count;
+            ulong count = Records.Count;
             if (count != Interlocked.Read(ref _committedCount))
             {
                 WriteManifest(count);
@@ -282,7 +283,7 @@ public abstract class IndexedStore<T> : IDisposable
             return;
         }
 
-        long committed = CommitRecords();
+        ulong committed = CommitRecords();
         foreach (SortedIndex index in _indexes)
         {
             if (index.NeedsFlush)
@@ -294,7 +295,7 @@ public abstract class IndexedStore<T> : IDisposable
 
     private void Recover()
     {
-        long committed = ReadManifest();
+        ulong committed = ReadManifest();
 
         // Records past the committed count reached the disk but were never acknowledged; an index
         // may not reference them, so drop them rather than leave dangling ordinals.
@@ -314,7 +315,7 @@ public abstract class IndexedStore<T> : IDisposable
         for (int i = 0; i < _indexes.Length; i++)
         {
             SortedIndex index = _indexes[i];
-            for (long ordinal = index.CoveredUpTo; ordinal < committed; ordinal++)
+            for (ulong ordinal = index.CoveredUpTo; ordinal < committed; ordinal++)
             {
                 T record = Records.Read(ordinal);
                 index.Add(GetKey(i, record), ordinal);
@@ -324,7 +325,7 @@ public abstract class IndexedStore<T> : IDisposable
 
     private string ManifestPath => Path.Combine(_directory, ManifestFile);
 
-    private long ReadManifest()
+    private ulong ReadManifest()
     {
         if (!File.Exists(ManifestPath))
         {
@@ -334,7 +335,7 @@ public abstract class IndexedStore<T> : IDisposable
         foreach (string line in File.ReadAllLines(ManifestPath))
         {
             if (line.StartsWith("records=", StringComparison.Ordinal) &&
-                long.TryParse(line["records=".Length..], out long value))
+                ulong.TryParse(line["records=".Length..], out ulong value))
             {
                 return value;
             }
@@ -343,7 +344,7 @@ public abstract class IndexedStore<T> : IDisposable
         throw new InvalidDataException($"Manifest '{ManifestPath}' is unreadable.");
     }
 
-    private void WriteManifest(long count)
+    private void WriteManifest(ulong count)
     {
         string temp = ManifestPath + ".tmp";
         File.WriteAllText(temp, $"records={count}\n");
@@ -356,4 +357,4 @@ public abstract class IndexedStore<T> : IDisposable
 /// <param name="SegmentCount">How many immutable segments are live.</param>
 /// <param name="PendingCount">How many entries are buffered in memory.</param>
 /// <param name="CoveredUpTo">The exclusive record ordinal the on-disk segments cover.</param>
-public readonly record struct IndexStatistics(string Name, int SegmentCount, int PendingCount, long CoveredUpTo);
+public readonly record struct IndexStatistics(string Name, int SegmentCount, int PendingCount, ulong CoveredUpTo);

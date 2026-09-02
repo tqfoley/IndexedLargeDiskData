@@ -14,7 +14,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
     /// </summary>
     private const string RootPath = @"c:\unittest\abvbabcb";
 
-    private const long TransactionCount = 20_000_000;
+    private const ulong TransactionCount = 20_000_000;
     private const int AddressCount = 300_000;
     private const int DistinctKeys = 2_000;
     private const int BatchSize = 8192;
@@ -46,7 +46,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
         string path = FreshDirectory("transactions");
         output.WriteLine($"data    {path}");
 
-        // 20 million * 3 * 8 bytes = 480 million 
+        // 20 million * 5 * 8 bytes = 800 million 
 
         StoreOptions options = new StoreOptions()
         {
@@ -63,10 +63,10 @@ public class LargeThroughputTest(ITestOutputHelper output)
 
         using DataRoot root = new(path, options);
 
-        Dictionary<long, List<TripleRecord>> byV0 = [];
-        Dictionary<long, List<TripleRecord>> byV1 = [];
+        Dictionary<long, List<QuadrupleRecord>> byV0 = [];
+        Dictionary<long, List<QuadrupleRecord>> byV1 = [];
 
-        TripleRecord[] batch = new TripleRecord[BatchSize];
+        QuadrupleRecord[] batch = new QuadrupleRecord[BatchSize];
         ulong seed = 20250825;
         long written = 0;
 
@@ -78,7 +78,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
             {
                 long v0 = (long)(TestData.Next(ref seed) % DistinctKeys);
                 long v1 = (long)(TestData.Next(ref seed) % DistinctKeys);
-                batch[i] = new TripleRecord(v0, v1, written + i);
+                batch[i] = new QuadrupleRecord(v0, v1, written + i, v0 + v1, v0 * v1);
 
                 TestData.Track(byV0, v0, batch[i]);
                 TestData.Track(byV1, v1, batch[i]);
@@ -143,7 +143,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
         string path = FreshDirectory("addresses");
         using DataRoot root = new(path, options);
 
-        Dictionary<long, List<AddressRecord>> byId = [];
+        Dictionary<ulong, List<AddressRecord>> byId = [];
         AddressRecord[] batch = new AddressRecord[BatchSize];
         int written = 0;
 
@@ -153,7 +153,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
             int take = Math.Min(batch.Length, AddressCount - written);
             for (int i = 0; i < take; i++)
             {
-                long id = written + i;
+                ulong id = (ulong)(written + i);
                 batch[i] = new AddressRecord(id, TestData.Address(id));
                 TestData.Track(byId, id, batch[i]);
             }
@@ -169,22 +169,22 @@ public class LargeThroughputTest(ITestOutputHelper output)
         root.Maintain();
         output.WriteLine($"merge   {clock.Elapsed.TotalSeconds:F2}s  [{Describe(root.Addresses)}]");
 
-        Assert.Equal(AddressCount, root.Addresses.Count);
+        Assert.Equal((ulong)AddressCount, root.Addresses.Count);
 
         // Sampled rather than exhaustive: the reverse lookup reads a record per prefix candidate to
         // confirm the full 75 characters, so checking all 300,000 would dominate the suite's runtime.
         int probes = 0;
         clock.Restart();
-        for (long id = 0; id < AddressCount; id += SampleStride)
+        for (ulong id = 0; id < AddressCount; id += SampleStride)
         {
             Assert.Equal(byId[id], root.Addresses.FindById(id));
 
-            Assert.True(root.Addresses.TryGetId(TestData.Address(id), out long found));
+            Assert.True(root.Addresses.TryGetId(TestData.Address(id), out ulong found));
             Assert.Equal(id, found);
             probes++;
         }
 
-        Report("verify", probes * 2, clock, "lookups");
+        Report("verify", (ulong)(probes * 2), clock, "lookups");
         output.WriteLine(CacheLine(root));
     }
 
@@ -224,8 +224,8 @@ public class LargeThroughputTest(ITestOutputHelper output)
         };
 
 
-        Dictionary<long, List<TripleRecord>> byV0 = [];
-        Dictionary<long, List<TripleRecord>> byV1 = [];
+        Dictionary<long, List<QuadrupleRecord>> byV0 = [];
+        Dictionary<long, List<QuadrupleRecord>> byV1 = [];
         ulong seed = 20250825;
 
         Stopwatch clock = Stopwatch.StartNew();
@@ -275,7 +275,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
             int spanningKeys = 0;
             for (long key = 0; key < DistinctKeys; key++)
             {
-                IReadOnlyList<TripleRecord> matches = root.Transactions.FindByV0(key);
+                IReadOnlyList<QuadrupleRecord> matches = root.Transactions.FindByV0(key);
                 Assert.Equal(byV0.GetValueOrDefault(key, []), matches);
                 Assert.Equal(byV1.GetValueOrDefault(key, []), root.Transactions.FindByV1(key));
 
@@ -307,13 +307,13 @@ public class LargeThroughputTest(ITestOutputHelper output)
 
     private void AppendTransactions(
         DataRoot root,
-        Dictionary<long, List<TripleRecord>> byV0,
-        Dictionary<long, List<TripleRecord>> byV1,
+        Dictionary<ulong, List<QuadrupleRecord>> byV0,
+        Dictionary<ulong, List<QuadrupleRecord>> byV1,
         ref ulong seed,
-        long firstOrdinal,
+        ulong firstOrdinal,
         int count)
     {
-        TripleRecord[] batch = new TripleRecord[BatchSize];
+        QuadrupleRecord[] batch = new QuadrupleRecord[BatchSize];
         int written = 0;
 
         while (written < count)
@@ -321,9 +321,9 @@ public class LargeThroughputTest(ITestOutputHelper output)
             int take = Math.Min(batch.Length, count - written);
             for (int i = 0; i < take; i++)
             {
-                long v0 = (long)(TestData.Next(ref seed) % DistinctKeys);
-                long v1 = (long)(TestData.Next(ref seed) % DistinctKeys);
-                batch[i] = new TripleRecord(v0, v1, firstOrdinal + written + i);
+                ulong v0 = (ulong)(TestData.Next(ref seed) % DistinctKeys);
+                ulong v1 = (ulong)(TestData.Next(ref seed) % DistinctKeys);
+                batch[i] = new QuadrupleRecord(v0, v1, firstOrdinal + (ulong)(written + i), v0 + v1, v0 * v1);
 
                 TestData.Track(byV0, v0, batch[i]);
                 TestData.Track(byV1, v1, batch[i]);
@@ -334,7 +334,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
         }
     }
 
-    private static void AppendAddresses(DataRoot root, long firstId, int count)
+    private static void AppendAddresses(DataRoot root, ulong firstId, int count)
     {
         AddressRecord[] batch = new AddressRecord[BatchSize];
         int written = 0;
@@ -344,7 +344,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
             int take = Math.Min(batch.Length, count - written);
             for (int i = 0; i < take; i++)
             {
-                long id = firstId + written + i;
+                ulong id = firstId + (ulong)(written + i);
                 batch[i] = new AddressRecord(id, TestData.Address(id));
             }
 
@@ -353,7 +353,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
         }
     }
 
-    private void Report(string phase, long items, Stopwatch clock, string unit = "records")
+    private void Report(string phase, ulong items, Stopwatch clock, string unit = "records")
     {
         double seconds = Math.Max(clock.Elapsed.TotalSeconds, 0.0001);
         output.WriteLine($"{phase,-7} {items,9:N0} {unit} in {seconds,6:F2}s  ({items / seconds,11:N0} {unit}/s)");
@@ -365,7 +365,7 @@ public class LargeThroughputTest(ITestOutputHelper output)
 
     private static string CacheLine(DataRoot root)
     {
-        long total = root.Cache.Hits + root.Cache.Misses;
+        ulong total = root.Cache.Hits + root.Cache.Misses;
         double hitRate;
         if (total == 0)
         {

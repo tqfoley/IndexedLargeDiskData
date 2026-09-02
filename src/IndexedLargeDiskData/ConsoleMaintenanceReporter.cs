@@ -26,7 +26,7 @@ internal sealed class ConsoleMaintenanceReporter
     private readonly double _step;
     private double _lastPrinted = -1;
 
-    internal ConsoleMaintenanceReporter(long plannedEntries)
+    internal ConsoleMaintenanceReporter(ulong plannedEntries)
     {
         if (_redirected)
         {
@@ -65,7 +65,7 @@ internal sealed class ConsoleMaintenanceReporter
         }
     }
 
-    internal void Finish(long plannedEntries)
+    internal void Finish(ulong plannedEntries)
     {
         if (!_redirected)
         {

@@ -22,6 +22,7 @@ Exercise a real dataset through the CLI (`--cache-mb` defaults to 256 here; the 
 ```sh
 dotnet run -c Release --project src/IndexedLargeDiskData.Cli -- ingest-transactions --root d:\data --count 2000000 --keys 50000
 dotnet run -c Release --project src/IndexedLargeDiskData.Cli -- find-v0 --root d:\data --key 12345
+dotnet run -c Release --project src/IndexedLargeDiskData.Cli -- find-v3 --root d:\data --key 500
 dotnet run -c Release --project src/IndexedLargeDiskData.Cli -- maintain --root d:\data
 ```
 
@@ -29,9 +30,13 @@ dotnet run -c Release --project src/IndexedLargeDiskData.Cli -- maintain --root 
 
 Two append-only datasets, never updated or deleted, sized for terabytes on disk:
 
-- **Transactions** — `TripleRecord`, three `long`s, 24 bytes. Indexed on `V0` and `V1`, both
-  duplicate tolerant (one key normally matches many records).
-- **Addresses** — `AddressRecord`, a `long` id plus a 75-character address, 83 bytes. The address is
+- **Transactions** — `QuadrupleRecord`, five `ulong`s, 40 bytes. The first four are indexed — `V0`,
+  `V1`, `V2` and `V3` — and all four indexes are duplicate tolerant (one key normally matches many
+  records). `V4` is payload: it is stored and returned on every record a lookup yields, but nothing
+  searches for it. `DataRoot.AddSingleTransaction` fills them as sender, recipient, block number,
+  amount and a spare payload that defaults to zero, so a block or an amount is a point lookup rather
+  than a scan; nothing is packed into a shared field.
+- **Addresses** — `AddressRecord`, a `ulong` id plus a 75-character address, 83 bytes. The address is
   text, held as a `string` and stored as 75 ASCII bytes, so a character count and a byte count are the
   same number. Navigable in both directions: id to address and address to id.
 
@@ -69,7 +74,7 @@ Fixed width is the load-bearing assumption: record `n` is at byte `n * T.Size`, 
 table and an index entry only needs an 8-byte ordinal. Segment caps are rounded down to a whole
 number of records so no record straddles two files.
 
-**`Indexing/SortedIndex`** — a duplicate-tolerant `long` key to ordinal map, built as an LSM of
+**`Indexing/SortedIndex`** — a duplicate-tolerant `ulong` key to ordinal map, built as an LSM of
 immutable sorted runs. Entries buffer in a `MemTable` (a large sorted region plus a short unsorted
 tail), flush to a level-0 `IndexSegment`, and merge upward in tiers of `MergeFanout`. Segment layout
 is header, entries, fences, Bloom filter; only the fences are loaded eagerly into managed memory.
@@ -117,10 +122,13 @@ string would spread the keys out, and the confirmation step already there would 
 
 ## Sizing, and why the defaults are what they are
 
-At 24 bytes a record, one TB of transactions is ~45.8 billion rows, and each 16-byte index entry
-over them is ~733 GB — the two indexes together cost more disk than the data. If the ingest can be
-ordered by one of the indexed fields, that index collapses to a sparse block-level index and only the
-other needs full entries; that trade is not implemented and would go in `SortedIndex`.
+At 40 bytes a record, one TB of transactions is ~27.5 billion rows, and each 16-byte index entry
+over them is ~440 GB — the four indexes cost ~1.8 TB, nearly twice the disk the data takes. That is
+the price of being able to start a query from a field, and the reason `V4` has no index: an indexed
+field costs 8 bytes on the record plus 16 in an index, an unindexed one costs the 8 and nothing
+else. If the ingest can be ordered by one of the indexed fields, that index collapses to a sparse
+block-level index and only the other three need full entries; that trade is not implemented and
+would go in `SortedIndex`.
 
 Defaults in `StoreOptions`, with the reason each one is where it is:
 
@@ -133,6 +141,16 @@ Defaults in `StoreOptions`, with the reason each one is where it is:
   spill into several outputs.
 - `BloomBitsPerKey` 10 — ~1% false positives. Lookups probe every live segment, so without a filter a
   point lookup pays a binary search per segment instead of one block read.
+
+**Every 64-bit value in the codebase is `ulong`.** Record fields, index keys, record ordinals,
+byte offsets, file lengths, cache counters and the tuning knobs in `StoreOptions` are all unsigned;
+`long` survives only as a cast at the BCL boundary, where `RandomAccess` and `Stream` insist on a
+signed offset. Two consequences worth holding on to. Index keys sort by unsigned order, so a key with
+its top bit set now sorts *above* the rest rather than below — any index written before the change is
+mis-ordered and has to be rebuilt. And a guard of the form `if (x < 0)` is dead code rather than a
+check: where signedness carried meaning, it had to be re-expressed. `BlockLog`'s "nothing logged yet"
+sentinel is the example — it was `long.MinValue`, and had to become `ulong.MaxValue` rather than
+`ulong.MinValue`, because zero is a real block number.
 
 ## Conventions
 

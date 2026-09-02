@@ -5,35 +5,55 @@ namespace IndexedLargeDiskData.Tests;
 public class RecordTests
 {
     [Fact]
-    public void TripleRecord_IsTwentyFourBytes()
+    public void QuadrupleRecord_IsFortyBytes()
     {
-        Assert.Equal(24, TripleRecord.Size);
+        Assert.Equal(40, QuadrupleRecord.Size);
     }
 
     [Fact]
-    public void TripleRecord_RoundTrips()
+    public void QuadrupleRecord_CarriesOneMoreValueThanItIndexes()
     {
-        TripleRecord original = new(long.MinValue, 0, long.MaxValue);
-        Span<byte> buffer = stackalloc byte[TripleRecord.Size];
-        TripleRecord.Write(buffer, original);
+        Assert.Equal(5, QuadrupleRecord.FieldCount);
+        Assert.Equal(4, QuadrupleRecord.IndexedFieldCount);
+    }
 
-        Assert.Equal(original, TripleRecord.Read(buffer));
+    [Fact]
+    public void QuadrupleRecord_RoundTrips()
+    {
+        QuadrupleRecord original = new(ulong.MinValue, 0, ulong.MaxValue, ulong.MaxValue - 1, 4242);
+        Span<byte> buffer = stackalloc byte[QuadrupleRecord.Size];
+        QuadrupleRecord.Write(buffer, original);
+
+        Assert.Equal(original, QuadrupleRecord.Read(buffer));
     }
 
     [Theory]
-    [InlineData(0, 0L)]
-    [InlineData(1, 7L)]
-    [InlineData(2, -3L)]
-    public void TripleRecord_GetField_SelectsTheRightValue(int field, long expected)
+    [InlineData(0, 0UL)]
+    [InlineData(1, 7UL)]
+    [InlineData(2, ulong.MaxValue)]
+    [InlineData(3, 9UL)]
+    [InlineData(4, 11UL)]
+    public void QuadrupleRecord_GetField_SelectsTheRightValue(int field, ulong expected)
     {
-        TripleRecord record = new(0, 7, -3);
+        // The third value is every bit set: under `long` that was -1, and the point of the field
+        // being unsigned is that it now round-trips as the largest value instead.
+        QuadrupleRecord record = new(0, 7, ulong.MaxValue, 9, 11);
         Assert.Equal(expected, record.GetField(field));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(QuadrupleRecord.FieldCount)]
+    public void QuadrupleRecord_GetField_RejectsAFieldOutsideTheRecord(int field)
+    {
+        QuadrupleRecord record = new(0, 7, ulong.MaxValue, 9, 11);
+        Assert.Throws<ArgumentOutOfRangeException>(() => record.GetField(field));
     }
 
     [Fact]
     public void AddressRecord_IsEightyThreeBytes()
     {
-        Assert.Equal(8 + 75, AddressRecord.Size);
+        Assert.Equal(8 + 55, AddressRecord.Size);
     }
 
     [Fact]
@@ -100,7 +120,7 @@ public class AddressTextTests
     {
         string address = TestData.AddressWithPrefix("abcdefgh", 'z');
 
-        Assert.Equal(unchecked((long)0x6867666564636261UL), AddressRecord.PrefixOf(address));
+        Assert.Equal(unchecked((ulong)0x6867666564636261UL), AddressRecord.PrefixOf(address));
         Assert.Equal(AddressRecord.PrefixOf(address), new AddressRecord(1, address).AddressPrefix);
     }
 
@@ -130,8 +150,8 @@ public class AddressTextTests
     public void DistinctSeeds_ProduceDistinctAddressesAndKeys()
     {
         HashSet<string> addresses = [];
-        HashSet<long> keys = [];
-        for (long seed = 0; seed < 1000; seed++)
+        HashSet<ulong> keys = [];
+        for (ulong seed = 0; seed < 1000; seed++)
         {
             string address = TestData.Address(seed);
             Assert.True(addresses.Add(address));

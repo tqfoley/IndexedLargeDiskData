@@ -9,7 +9,7 @@ namespace IndexedLargeDiskData.Indexing;
 /// Sorted by key then ordinal, so duplicates of a key form one contiguous run with ascending
 /// ordinals: a lookup finds the first entry and walks forward until the key changes.
 /// </remarks>
-internal readonly record struct IndexEntry(long Key, long Ordinal) : IComparable<IndexEntry>
+internal readonly record struct IndexEntry(ulong Key, ulong Ordinal) : IComparable<IndexEntry>
 {
     /// <summary>The on-disk size of an entry.</summary>
     internal const int Size = 16;
@@ -29,12 +29,12 @@ internal readonly record struct IndexEntry(long Key, long Ordinal) : IComparable
     }
 
     internal static IndexEntry Read(ReadOnlySpan<byte> source) => new(
-        BinaryPrimitives.ReadInt64LittleEndian(source),
-        BinaryPrimitives.ReadInt64LittleEndian(source[8..]));
+        BinaryPrimitives.ReadUInt64LittleEndian(source),
+        BinaryPrimitives.ReadUInt64LittleEndian(source[8..]));
 
     internal static void Write(Span<byte> destination, in IndexEntry entry)
     {
-        BinaryPrimitives.WriteInt64LittleEndian(destination, entry.Key);
-        BinaryPrimitives.WriteInt64LittleEndian(destination[8..], entry.Ordinal);
+        BinaryPrimitives.WriteUInt64LittleEndian(destination, entry.Key);
+        BinaryPrimitives.WriteUInt64LittleEndian(destination[8..], entry.Ordinal);
     }
 }

@@ -14,8 +14,8 @@ public class SortedIndexTests
         fixture.Index.Add(42, 9);
         fixture.Index.Add(43, 8);
 
-        Assert.Equal(new long[] { 7, 9 }, fixture.Lookup(42));
-        Assert.Equal(new long[] { 8 }, fixture.Lookup(43));
+        Assert.Equal(new ulong[] { 7, 9 }, fixture.Lookup(42));
+        Assert.Equal(new ulong[] { 8 }, fixture.Lookup(43));
         Assert.Empty(fixture.Lookup(44));
     }
 
@@ -24,7 +24,7 @@ public class SortedIndexTests
     {
         using Fixture fixture = new();
 
-        for (long ordinal = 0; ordinal < 500; ordinal++)
+        for (ulong ordinal = 0; ordinal < 500; ordinal++)
         {
             fixture.Index.Add(ordinal % 10, ordinal);
         }
@@ -33,8 +33,8 @@ public class SortedIndexTests
 
         Assert.Equal(1, fixture.Index.SegmentCount);
         Assert.Equal(0, fixture.Index.PendingCount);
-        Assert.Equal(500, fixture.Index.CoveredUpTo);
-        Assert.Equal(new long[] { 3, 13, 23, 33, 43 }, fixture.Lookup(3).Take(5));
+        Assert.Equal(500UL, fixture.Index.CoveredUpTo);
+        Assert.Equal(new ulong[] { 3, 13, 23, 33, 43 }, fixture.Lookup(3).Take(5));
         Assert.Equal(50, fixture.Lookup(3).Count);
     }
 
@@ -47,7 +47,7 @@ public class SortedIndexTests
         fixture.Index.Flush(101);
         fixture.Index.Add(5, 200);
 
-        Assert.Equal(new long[] { 100, 200 }, fixture.Lookup(5));
+        Assert.Equal(new ulong[] { 100, 200 }, fixture.Lookup(5));
     }
 
     [Fact]
@@ -64,18 +64,18 @@ public class SortedIndexTests
     public void Maintain_MergesATierAndPreservesEveryEntry()
     {
         using Fixture fixture = new();
-        Dictionary<long, List<long>> expected = [];
+        Dictionary<ulong, List<ulong>> expected = [];
 
         ulong seed = 1;
-        long ordinal = 0;
+        ulong ordinal = 0;
         for (int flush = 0; flush < 3; flush++)
         {
             for (int i = 0; i < 200; i++)
             {
-                long key = (long)(TestData.Next(ref seed) % 50);
+                ulong key = (ulong)(TestData.Next(ref seed) % 50);
                 fixture.Index.Add(key, ordinal);
 
-                if (!expected.TryGetValue(key, out List<long>? list))
+                if (!expected.TryGetValue(key, out List<ulong>? list))
                 {
                     expected[key] = list = [];
                 }
@@ -94,7 +94,7 @@ public class SortedIndexTests
         // Fanout is three, so the three level-0 segments collapse into one at level one.
         Assert.Equal(1, fixture.Index.SegmentCount);
 
-        foreach ((long key, List<long> ordinals) in expected)
+        foreach ((ulong key, List<ulong> ordinals) in expected)
         {
             Assert.Equal(ordinals.Order(), fixture.Lookup(key));
         }
@@ -110,7 +110,7 @@ public class SortedIndexTests
         using (BlockCache cache = new(options.BlockSize, options.CacheBudgetBytes))
         using (SortedIndex index = new(path, options, cache))
         {
-            for (long ordinal = 0; ordinal < 300; ordinal++)
+            for (ulong ordinal = 0; ordinal < 300; ordinal++)
             {
                 index.Add(ordinal % 7, ordinal);
             }
@@ -122,12 +122,12 @@ public class SortedIndexTests
         using SortedIndex reopened = new(path, options, reopenedCache);
 
         Assert.Equal(1, reopened.SegmentCount);
-        Assert.Equal(300, reopened.CoveredUpTo);
+        Assert.Equal(300UL, reopened.CoveredUpTo);
 
-        List<long> results = [];
+        List<ulong> results = [];
         reopened.Lookup(4, results);
         Assert.Equal(43, results.Count);
-        Assert.All(results, ordinal => Assert.Equal(4, ordinal % 7));
+        Assert.All(results, ordinal => Assert.Equal(4UL, ordinal % 7));
     }
 
     [Fact]
@@ -135,14 +135,16 @@ public class SortedIndexTests
     {
         using Fixture fixture = new();
 
-        for (long ordinal = 0; ordinal < 100; ordinal++)
+        for (ulong ordinal = 0; ordinal < 100; ordinal++)
         {
             fixture.Index.Add(ordinal, ordinal);
         }
 
         fixture.Index.Flush(100);
 
-        Assert.Empty(fixture.Lookup(-1));
+        // Keys are unsigned now, so there is no key below the range to probe; the far end of it
+        // stands in for the miss the -1 used to check.
+        Assert.Empty(fixture.Lookup(ulong.MaxValue));
         Assert.Empty(fixture.Lookup(1000));
     }
 
@@ -153,9 +155,9 @@ public class SortedIndexTests
 
         // A single key repeated far past the 16-entry fence stride: the run has to be walked
         // across several fence windows.
-        for (long ordinal = 0; ordinal < 400; ordinal++)
+        for (ulong ordinal = 0; ordinal < 400; ordinal++)
         {
-            long key;
+            ulong key;
             if (ordinal < 300)
             {
                 key = 1;
@@ -182,9 +184,9 @@ public class SortedIndexTests
         // unchecked the cascade climbs a level per round and never terminates.
         using Fixture fixture = new(memTableEntries: 1024, maxSegmentEntries: 1024);
 
-        for (int flush = 0; flush < 12; flush++)
+        for (ulong flush = 0; flush < 12; flush++)
         {
-            for (int i = 0; i < 1024; i++)
+            for (ulong i = 0; i < 1024; i++)
             {
                 fixture.Index.Add(i, (flush * 1024) + i);
             }
@@ -193,7 +195,7 @@ public class SortedIndexTests
         }
 
         Assert.Equal(12, fixture.Index.SegmentCount);
-        Assert.Equal(0, fixture.Index.PlannedMergeEntries());
+        Assert.Equal(0UL, fixture.Index.PlannedMergeEntries());
 
         // A regression here is a hang, not an exception, so bound it: race the merge against a timer
         // and fail on the timer rather than letting the whole test run stall.
@@ -217,9 +219,9 @@ public class SortedIndexTests
         // of climbing levels forever.
         using Fixture fixture = new(memTableEntries: 1024, maxSegmentEntries: 4096);
 
-        for (int flush = 0; flush < 9; flush++)
+        for (ulong flush = 0; flush < 9; flush++)
         {
-            for (int i = 0; i < 1024; i++)
+            for (ulong i = 0; i < 1024; i++)
             {
                 fixture.Index.Add(i, (flush * 1024) + i);
             }
@@ -230,7 +232,7 @@ public class SortedIndexTests
         Assert.Equal(9, fixture.Index.SegmentCount);
 
         // Three level-0 merges of 3,072 entries each; the level-1 merge is declined.
-        Assert.Equal(9216, fixture.Index.PlannedMergeEntries());
+        Assert.Equal(9216UL, fixture.Index.PlannedMergeEntries());
 
         Task merge = Task.Run(() => fixture.Index.Maintain());
         Assert.True(
@@ -239,7 +241,7 @@ public class SortedIndexTests
         await merge;
 
         Assert.Equal(3, fixture.Index.SegmentCount);
-        Assert.Equal(0, fixture.Index.PlannedMergeEntries());
+        Assert.Equal(0UL, fixture.Index.PlannedMergeEntries());
 
         // Every entry survived the cascade.
         Assert.Equal(9, fixture.Lookup(0).Count);
@@ -251,7 +253,7 @@ public class SortedIndexTests
         private readonly TempDirectory _dir = new();
         private readonly BlockCache _cache;
 
-        internal Fixture(int memTableEntries = 100_000, long? maxSegmentEntries = null)
+        internal Fixture(int memTableEntries = 100_000, ulong? maxSegmentEntries = null)
         {
             StoreOptions options = TestData.SmallOptions(memTableEntries, maxSegmentEntries);
             _cache = new BlockCache(options.BlockSize, options.CacheBudgetBytes);
@@ -260,9 +262,9 @@ public class SortedIndexTests
 
         internal SortedIndex Index { get; }
 
-        internal List<long> Lookup(long key)
+        internal List<ulong> Lookup(ulong key)
         {
-            List<long> results = [];
+            List<ulong> results = [];
             Index.Lookup(key, results);
             results.Sort();
             return results;
