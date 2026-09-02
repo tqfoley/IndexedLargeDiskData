@@ -15,7 +15,7 @@ namespace IndexedLargeDiskData.Records;
 public readonly record struct AddressRecord : IFixedRecord<AddressRecord>
 {
     /// <summary>The exact length of an address, in characters, which is also its length in bytes.</summary>
-    public const int AddressLength = 75;
+    public const int AddressLength = 55;
 
     /// <summary>The number of leading characters of an address that make up its index key.</summary>
     public const int PrefixLength = 8;

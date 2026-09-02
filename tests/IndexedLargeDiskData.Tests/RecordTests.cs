@@ -81,7 +81,7 @@ public class AddressTextTests
     {
         string address = TestData.Address(1);
 
-        Assert.Equal(75, AddressRecord.AddressLength);
+        Assert.Equal(55, AddressRecord.AddressLength);
         Assert.Equal(AddressRecord.AddressLength, address.Length);
         Assert.All(address, c => Assert.True(char.IsAscii(c)));
         Assert.True(AddressRecord.IsValid(address));
